@@ -44,9 +44,10 @@ Disables shader-heavy rendering, spring physics, and multi-frame geometry transf
 - **Low Battery**: Shuts off external USB standby port charging (`usb_charging = 0`) to prevent attached dongles, cables, or external devices from draining the remaining emergency reserve.
 - **AC / Battery**: Kept enabled (`1`).
 
-### 7. Background Update Timers & Foreground Boosters (`systemd --user`)
+### 7. Background Update Timers, Foreground Boosters & KDE Connect (`systemd --user`)
 - **Update Timers (`arch-update.timer`)**: Paused on **Battery** and **Low Battery** to avoid background network probes and package cache refreshes; resumed on **AC**.
 - **Foreground CPU/GPU Boosters (`plasma-foreground-booster.service` & `dmemcg-booster-user.service`)**: Stopped on **Low Battery** to prevent aggressive CPU cgroup boost spikes when switching windows; kept active on **AC** and **Battery**.
+- **KDE Connect (`app-org.kde.kdeconnect.daemon@autostart.service`)**: Stopped on **Low Battery** to eliminate background LAN broadcasts, clipboard listeners, and Wi-Fi packet wakeups when battery is critical; automatically restarted on **AC** and **Battery**.
 
 ### 8. PipeWire Audio Buffer Quantum (`pw-metadata`)
 - **Low Battery**: Forces `clock.force-quantum` to `2048` samples, cutting audio thread CPU wakeups and interrupts by 2x–8x during media playback or calls.

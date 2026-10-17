@@ -25,9 +25,10 @@
 #   6. Lenovo IdeaPad USB Standby Charging:
 #      - Disabled (0) on Low Battery to prevent peripherals/cables from siphoning reserve power
 #      - Enabled (1) on AC / Battery
-#   7. Background System Update Timers & Foreground Boosters (systemd --user):
+#   7. Background System Update Timers, Boosters & KDE Connect (systemd --user):
 #      - arch-update.timer stopped on Battery / Low Battery, started on AC
-#      - plasma-foreground-booster.service & dmemcg-booster-user.service stopped on Low Battery,
+#      - plasma-foreground-booster.service, dmemcg-booster-user.service &
+#        app-org.kde.kdeconnect.daemon@autostart.service stopped on Low Battery,
 #        started on AC / Battery
 #   8. PipeWire Audio Buffer Quantum (pw-metadata):
 #      - Forced to 2048 samples on Low Battery to reduce audio CPU interrupts
@@ -58,7 +59,7 @@ Modes:
                               - Bluetooth: unblocked
                               - IdeaPad USB charging: enabled
                               - arch-update.timer: active
-                              - Foreground CPU/GPU boosters: active
+                              - Foreground boosters & KDE Connect: active
                               - PipeWire force-quantum: 0 (dynamic)
                               - Color scheme: restored to AC preference
 
@@ -74,7 +75,7 @@ Modes:
                               - Bluetooth: blocked if no device is connected
                               - Keyboard backlight: turned off
                               - arch-update.timer: paused
-                              - Foreground CPU/GPU boosters: active
+                              - Foreground boosters & KDE Connect: active
                               - PipeWire force-quantum: 0 (dynamic)
                               - Color scheme: switched to BreezeDark for ABM
 
@@ -83,7 +84,7 @@ Modes:
                               - All battery optimizations above
                               - Display dimming: 80%
                               - IdeaPad USB standby charging: disabled
-                              - Foreground CPU/GPU boosters: stopped
+                              - Foreground boosters & KDE Connect: stopped
                               - PipeWire force-quantum: 2048 (large power-saving buffer)
 
 Arguments:
@@ -308,7 +309,7 @@ if [[ -w "$IDEAPAD_USB_NODE" ]]; then
 fi
 
 # ---------------------------------------------------------
-# 7. Background Update Timers & Foreground Boosters (systemd --user)
+# 7. Background Update Timers, Boosters & KDE Connect (systemd --user)
 # ---------------------------------------------------------
 if command -v systemctl >/dev/null 2>&1; then
     if [[ "$PAUSE_UPDATE_TIMER" == "true" ]]; then
@@ -323,20 +324,21 @@ if command -v systemctl >/dev/null 2>&1; then
         fi
     fi
 
-    BOOSTER_SERVICES=(
+    LOW_BATTERY_STOP_SERVICES=(
         "plasma-foreground-booster.service"
         "dmemcg-booster-user.service"
+        "app-org.kde.kdeconnect.daemon@autostart.service"
     )
     if [[ "$PAUSE_FOREGROUND_BOOSTERS" == "true" ]]; then
-        for svc in "${BOOSTER_SERVICES[@]}"; do
+        for svc in "${LOW_BATTERY_STOP_SERVICES[@]}"; do
             if systemctl --user is-active --quiet "$svc" 2>/dev/null; then
                 echo "Stopping ${svc} on low battery..."
                 systemctl --user stop "$svc" 2>/dev/null || true
             fi
         done
     else
-        for svc in "${BOOSTER_SERVICES[@]}"; do
-            if systemctl --user list-unit-files "$svc" >/dev/null 2>&1 && ! systemctl --user is-active --quiet "$svc" 2>/dev/null; then
+        for svc in "${LOW_BATTERY_STOP_SERVICES[@]}"; do
+            if systemctl --user cat "$svc" >/dev/null 2>&1 && ! systemctl --user is-active --quiet "$svc" 2>/dev/null; then
                 echo "Starting ${svc}..."
                 systemctl --user start "$svc" 2>/dev/null || true
             fi
