@@ -29,13 +29,16 @@
 #      - Enabled (1) on AC / Battery
 #   7. Background System Update Timers, Boosters & KDE Connect (systemd --user):
 #      - arch-update.timer stopped on Battery / Low Battery, started on AC
-#      - plasma-foreground-booster.service, dmemcg-booster-user.service &
+#      - psd-resync.timer, plasma-foreground-booster.service, dmemcg-booster-user.service &
 #        app-org.kde.kdeconnect.daemon@autostart.service stopped on Low Battery,
 #        started on AC / Battery
-#   8. PipeWire Audio Buffer Quantum (pw-metadata):
+#   8. User Cgroup v2 Memory, Swap & Scheduling Tweaks (background.slice):
+#      - cpu.idle=1 (SCHED_IDLE) and io.prio.class=idle on Battery / Low Battery (0 / no-change on AC)
+#      - memory.swap.high=512M & 64M cold-page ZRAM reclaim on Battery / Low Battery (max on AC)
+#   9. PipeWire Audio Buffer Quantum (pw-metadata):
 #      - Forced to 2048 samples on Low Battery to reduce audio CPU interrupts
 #      - Reset to 0 (dynamic low-latency) on AC / Battery
-#   9. System Color Scheme / Dark Mode (plasma-apply-colorscheme):
+#  10. System Color Scheme / Dark Mode (plasma-apply-colorscheme):
 #      - Switches to BreezeDark on Battery / Low Battery to maximize ABM backlight power savings
 #      - Saves and restores original color scheme when returning to AC
 #
@@ -62,7 +65,8 @@ Modes:
                               - Bluetooth: unblocked
                               - IdeaPad USB charging: enabled
                               - arch-update.timer: active
-                              - Foreground boosters & KDE Connect: active
+                              - Foreground boosters, KDE Connect & psd-resync.timer: active
+                              - background.slice cgroup: normal CPU/IO & swap=max
                               - PipeWire force-quantum: 0 (dynamic)
                               - Color scheme: restored to AC preference
 
@@ -79,7 +83,8 @@ Modes:
                               - Bluetooth: blocked if no device is connected
                               - Keyboard backlight: turned off
                               - arch-update.timer: paused
-                              - Foreground boosters & KDE Connect: active
+                              - Foreground boosters, KDE Connect & psd-resync.timer: active
+                              - background.slice cgroup: SCHED_IDLE CPU/IO, 512M swap cap & 64M ZRAM reclaim
                               - PipeWire force-quantum: 0 (dynamic)
                               - Color scheme: switched to BreezeDark for ABM
 
@@ -88,7 +93,7 @@ Modes:
                               - All battery optimizations above
                               - Display dimming: 80%
                               - IdeaPad USB standby charging: disabled
-                              - Foreground boosters & KDE Connect: stopped
+                              - Foreground boosters, KDE Connect & psd-resync.timer: stopped
                               - PipeWire force-quantum: 2048 (large power-saving buffer)
 
 Arguments:
@@ -122,6 +127,10 @@ case "$MODE" in
         USB_CHARGING=1
         PAUSE_UPDATE_TIMER=false
         PAUSE_FOREGROUND_BOOSTERS=false
+        BG_CPU_IDLE=0
+        BG_IO_PRIO="no-change"
+        BG_SWAP_HIGH="max"
+        BG_RECLAIM=""
         PIPEWIRE_FORCE_QUANTUM=0
         COLOR_SCHEME_MODE="restore"
         ;;
@@ -140,6 +149,10 @@ case "$MODE" in
         USB_CHARGING=1
         PAUSE_UPDATE_TIMER=true
         PAUSE_FOREGROUND_BOOSTERS=false
+        BG_CPU_IDLE=1
+        BG_IO_PRIO="idle"
+        BG_SWAP_HIGH="512M"
+        BG_RECLAIM="64M"
         PIPEWIRE_FORCE_QUANTUM=0
         COLOR_SCHEME_MODE="dark"
         ;;
@@ -158,6 +171,10 @@ case "$MODE" in
         USB_CHARGING=0
         PAUSE_UPDATE_TIMER=true
         PAUSE_FOREGROUND_BOOSTERS=true
+        BG_CPU_IDLE=1
+        BG_IO_PRIO="idle"
+        BG_SWAP_HIGH="512M"
+        BG_RECLAIM="64M"
         PIPEWIRE_FORCE_QUANTUM=2048
         COLOR_SCHEME_MODE="dark"
         ;;
@@ -360,6 +377,7 @@ if command -v systemctl >/dev/null 2>&1; then
     fi
 
     LOW_BATTERY_STOP_SERVICES=(
+        "psd-resync.timer"
         "plasma-foreground-booster.service"
         "dmemcg-booster-user.service"
         "app-org.kde.kdeconnect.daemon@autostart.service"
@@ -382,7 +400,22 @@ if command -v systemctl >/dev/null 2>&1; then
 fi
 
 # ---------------------------------------------------------
-# 8. PipeWire Audio Buffer Quantum (Low Battery only)
+# 8. User Cgroup v2 Memory, Swap & Scheduling Tweaks (background.slice)
+# ---------------------------------------------------------
+USER_BG_SLICE="/sys/fs/cgroup/user.slice/user-$(id -u).slice/user@$(id -u).service/background.slice"
+if [[ -d "$USER_BG_SLICE" ]]; then
+    echo "Applying background.slice cgroup v2 power tweaks (cpu.idle=${BG_CPU_IDLE}, io.prio=${BG_IO_PRIO}, swap.high=${BG_SWAP_HIGH})..."
+    [[ -w "$USER_BG_SLICE/cpu.idle" ]] && echo "$BG_CPU_IDLE" > "$USER_BG_SLICE/cpu.idle" 2>/dev/null || true
+    [[ -w "$USER_BG_SLICE/io.prio.class" ]] && echo "$BG_IO_PRIO" > "$USER_BG_SLICE/io.prio.class" 2>/dev/null || true
+    [[ -w "$USER_BG_SLICE/memory.swap.high" ]] && echo "$BG_SWAP_HIGH" > "$USER_BG_SLICE/memory.swap.high" 2>/dev/null || true
+    if [[ -n "$BG_RECLAIM" && -w "$USER_BG_SLICE/memory.reclaim" ]]; then
+        echo "Reclaiming ${BG_RECLAIM} of cold pages from background.slice into ZRAM..."
+        echo "$BG_RECLAIM" > "$USER_BG_SLICE/memory.reclaim" 2>/dev/null || true
+    fi
+fi
+
+# ---------------------------------------------------------
+# 9. PipeWire Audio Buffer Quantum (Low Battery only)
 # ---------------------------------------------------------
 if command -v pw-metadata >/dev/null 2>&1; then
     echo "Setting PipeWire clock.force-quantum to ${PIPEWIRE_FORCE_QUANTUM}..."
@@ -390,7 +423,7 @@ if command -v pw-metadata >/dev/null 2>&1; then
 fi
 
 # ---------------------------------------------------------
-# 9. System Color Scheme / Dark Mode (plasma-apply-colorscheme)
+# 10. System Color Scheme / Dark Mode (plasma-apply-colorscheme)
 # ---------------------------------------------------------
 if command -v plasma-apply-colorscheme >/dev/null 2>&1; then
     SCHEME_STATE_FILE="${XDG_STATE_HOME:-$HOME/.local/state}/kde-power-management/ac-colorscheme"

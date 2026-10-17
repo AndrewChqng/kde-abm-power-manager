@@ -45,16 +45,23 @@ Disables shader-heavy rendering, spring physics, and multi-frame geometry transf
 - **Low Battery**: Shuts off external USB standby port charging (`usb_charging = 0`) to prevent attached dongles, cables, or external devices from draining the remaining emergency reserve.
 - **AC / Battery**: Kept enabled (`1`).
 
-### 7. Background Update Timers, Foreground Boosters & KDE Connect (`systemd --user`)
+### 7. Background Update Timers, Foreground Boosters, PSD & KDE Connect (`systemd --user`)
 - **Update Timers (`arch-update.timer`)**: Paused on **Battery** and **Low Battery** to avoid background network probes and package cache refreshes; resumed on **AC**.
+- **Browser RAM-to-SSD Hourly Sync (`psd-resync.timer`)**: Stopped on **Low Battery** so Profile-Sync-Daemon keeps browser writes strictly in `tmpfs` RAM without hourly NVMe `rsync` bursts; resumed on **AC** and **Battery**.
 - **Foreground CPU/GPU Boosters (`plasma-foreground-booster.service` & `dmemcg-booster-user.service`)**: Stopped on **Low Battery** to prevent aggressive CPU cgroup boost spikes when switching windows; kept active on **AC** and **Battery**.
 - **KDE Connect (`app-org.kde.kdeconnect.daemon@autostart.service`)**: Stopped on **Low Battery** to eliminate background LAN broadcasts, clipboard listeners, and Wi-Fi packet wakeups when battery is critical; automatically restarted on **AC** and **Battery**.
 
-### 8. PipeWire Audio Buffer Quantum (`pw-metadata`)
+### 8. User Cgroup v2 Memory, Swap & Scheduling Tweaks (`background.slice`)
+- **Battery / Low Battery**:
+  - Sets `cpu.idle = 1` (`SCHED_IDLE`) and `io.prio.class = idle` on `/sys/fs/cgroup/user.slice/.../background.slice` so background services never ramp CPU/Infinity Fabric clocks or wake storage independently.
+  - Triggers a one-time `64M` cold-page reclaim (`memory.reclaim`) to compress idle daemon pages into `zstd` ZRAM, and caps `memory.swap.high = 512M` so background services cannot spill past ZRAM onto the NVMe swapfile.
+- **AC**: Restores `cpu.idle = 0`, `io.prio.class = no-change`, and `memory.swap.high = max`.
+
+### 9. PipeWire Audio Buffer Quantum (`pw-metadata`)
 - **Low Battery**: Forces `clock.force-quantum` to `2048` samples, cutting audio thread CPU wakeups and interrupts by 2x–8x during media playback or calls.
 - **AC / Battery**: Reset to `0` (dynamic low-latency buffer scaling).
 
-### 9. System Color Scheme / Dark Mode (`plasma-apply-colorscheme`)
+### 10. System Color Scheme / Dark Mode (`plasma-apply-colorscheme`)
 - **Why it matters for ABM**: Adaptive Backlight Modulation analyzes screen content brightness. Dark backgrounds allow ABM to aggressively drop the physical panel backlight without losing detail, yielding maximum power savings.
 - **Battery / Low Battery**: Automatically switches Plasma to `BreezeDark` (and triggers the FreeDesktop `prefer-dark` portal). If you were using a light theme on AC, your active scheme is saved to `~/.local/state/kde-power-management/ac-colorscheme`.
 - **AC**: Seamlessly restores your original AC color scheme.
