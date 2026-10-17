@@ -19,11 +19,13 @@ Leverages hardware and driver-level controls exposed by KWin and `amdgpu`:
 | **EDR Policy** | `always` | `never` | `never` | Blocks apps from driving peak backlight headroom |
 | **Software Dimming** | `100%` | `100%` | `80%` | Additional software dimming for emergency battery conservation |
 
-### 2. KWin Compositor Effects (via `qdbus6`)
-Disables shader-heavy and physics-based background compositing effects to reduce iGPU wakeups and draw cycles:
-- **`blur`**: Unloaded on battery; reloaded on AC.
-- **`translucency`**: Unloaded on battery; reloaded on AC.
-- **`wobblywindows`**: Unloaded on battery; reloaded on AC.
+### 2. KWin Compositor & Animation Effects (via `qdbus6`)
+Disables shader-heavy rendering, spring physics, and multi-frame geometry transforms on battery so window actions become instantaneous with zero continuous GPU redraw cycles:
+- **Shaders & Translucency**: `blur`, `translucency`
+- **Window Movements & Physics**: `wobblywindows`, `fallapart`
+- **Window State Transitions**: `scale`, `squash` (minimize/maximize transforms)
+- **Virtual Desktops & Shell**: `slide`, `slideback`, `slidingpopups`, `slidingnotifications`
+*(All unloaded on Battery / Low Battery; restored on AC)*
 
 ### 3. Smart Bluetooth Management (`rfkill` / `bluetoothctl`)
 - **Battery / Low Battery**: Checks `bluetoothctl devices Connected`. If **no active devices** are connected (e.g. mouse, headphones), Bluetooth is soft-blocked to stop continuous inquiry/page scanning. If a device **is** connected, Bluetooth remains active uninterrupted.

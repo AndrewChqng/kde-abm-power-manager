@@ -10,7 +10,9 @@
 #      - EDR Policy: always on AC, never on Battery / Low Battery
 #      - Display Dimming: 100% on AC / Battery, 80% on Low Battery
 #   2. KWin Compositor Effects (via qdbus6):
-#      - blur, translucency, and wobblywindows: loaded on AC, unloaded on Battery / Low Battery
+#      - blur, translucency, wobblywindows, scale, squash, slide, slideback,
+#        slidingpopups, slidingnotifications, fallapart:
+#        loaded on AC, unloaded on Battery / Low Battery (zero-animation GPU overhead)
 #   3. Smart Bluetooth Power Management (rfkill / bluetoothctl):
 #      - Unblocked on AC
 #      - Soft-blocked on Battery / Low Battery ONLY if no Bluetooth device is currently connected
@@ -39,7 +41,7 @@ Modes:
                               - Max bits per color (maxbpc): automatic
                               - EDR policy: always
                               - Display dimming: 100%
-                              - KWin blur, translucency & wobblywindows: enabled
+                              - KWin visual & animation effects: enabled
                               - Bluetooth: unblocked
                               - IdeaPad USB charging: enabled
                               - arch-update.timer: active
@@ -50,7 +52,7 @@ Modes:
                               - Max bits per color (maxbpc): 8
                               - EDR policy: never
                               - Display dimming: 100%
-                              - KWin blur, translucency & wobblywindows: disabled
+                              - KWin visual & animation effects: disabled (instant rendering)
                               - Bluetooth: blocked if no device is connected
                               - Keyboard backlight: turned off
                               - arch-update.timer: paused
@@ -169,14 +171,26 @@ fi
 # 2. KWin Compositor Effects Tweaks (qdbus)
 # ---------------------------------------------------------
 if [[ -n "$QDBUS_BIN" ]]; then
-    HEAVY_EFFECTS=("blur" "translucency" "wobblywindows")
+    # Shader-heavy and geometry transform animation effects
+    HEAVY_EFFECTS=(
+        "blur"
+        "translucency"
+        "wobblywindows"
+        "scale"
+        "squash"
+        "slide"
+        "slideback"
+        "slidingpopups"
+        "slidingnotifications"
+        "fallapart"
+    )
     if [[ "$ENABLE_COMPOSITOR_EFFECTS" == "true" ]]; then
-        echo "Restoring KWin visual effects (${HEAVY_EFFECTS[*]})..."
+        echo "Restoring KWin visual & animation effects (${HEAVY_EFFECTS[*]})..."
         for effect in "${HEAVY_EFFECTS[@]}"; do
             "$QDBUS_BIN" org.kde.KWin /Effects org.kde.kwin.Effects.loadEffect "$effect" >/dev/null 2>&1 || true
         done
     else
-        echo "Disabling heavy KWin visual effects (${HEAVY_EFFECTS[*]})..."
+        echo "Disabling heavy KWin visual & animation effects (${HEAVY_EFFECTS[*]})..."
         for effect in "${HEAVY_EFFECTS[@]}"; do
             "$QDBUS_BIN" org.kde.KWin /Effects org.kde.kwin.Effects.unloadEffect "$effect" >/dev/null 2>&1 || true
         done
