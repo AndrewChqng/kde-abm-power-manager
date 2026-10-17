@@ -23,6 +23,7 @@ Leverages hardware and driver-level controls exposed by KWin and `amdgpu`:
 Disables shader-heavy rendering, spring physics, and multi-frame geometry transforms on battery so window actions become instantaneous with zero continuous GPU redraw cycles:
 - **Shaders & Translucency**: `blur`, `translucency`
 - **Window Movements & Physics**: `wobblywindows`, `fallapart`
+- **Input Tracking**: `touchpoints` (prevents high CPU usage from multi-finger touch tracking overlays)
 - **Window State Transitions**: `scale`, `squash` (minimize/maximize transforms)
 - **Virtual Desktops & Shell**: `slide`, `slideback`, `slidingpopups`, `slidingnotifications`
 *(All unloaded on Battery / Low Battery; restored on AC)*

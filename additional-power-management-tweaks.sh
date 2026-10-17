@@ -11,8 +11,8 @@
 #      - Display Dimming: 100% on AC / Battery, 80% on Low Battery
 #   2. KWin Compositor Effects (via qdbus6):
 #      - blur, translucency, wobblywindows, scale, squash, slide, slideback,
-#        slidingpopups, slidingnotifications, fallapart:
-#        loaded on AC, unloaded on Battery / Low Battery (zero-animation GPU overhead)
+#        slidingpopups, slidingnotifications, fallapart, touchpoints:
+#        loaded on AC, unloaded on Battery / Low Battery (cuts continuous CPU/GPU redraw)
 #   3. Smart Bluetooth Power Management (rfkill / bluetoothctl):
 #      - Unblocked on AC
 #      - Soft-blocked on Battery / Low Battery ONLY if no Bluetooth device is currently connected
@@ -183,6 +183,7 @@ if [[ -n "$QDBUS_BIN" ]]; then
         "slidingpopups"
         "slidingnotifications"
         "fallapart"
+        "touchpoints"
     )
     if [[ "$ENABLE_COMPOSITOR_EFFECTS" == "true" ]]; then
         echo "Restoring KWin visual & animation effects (${HEAVY_EFFECTS[*]})..."
