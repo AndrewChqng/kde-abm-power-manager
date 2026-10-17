@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# kde-abm-power-manager.sh
+# additional-power-management-tweaks.sh
 # Adjusts KDE Display power parameters and KWin Compositor effects based on power state.
 #
 # Supports:
@@ -13,7 +13,7 @@
 #      - blur & translucency effects: loaded on AC, unloaded on Battery / Low Battery
 #
 # Usage:
-#   kde-abm-power-manager.sh <ac|battery|low_battery|"low battery"> [output_name]
+#   additional-power-management-tweaks.sh <ac|battery|low_battery|"low battery"> [output_name]
 
 set -euo pipefail
 

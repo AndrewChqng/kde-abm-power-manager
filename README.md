@@ -31,29 +31,29 @@ Disables shader-heavy background compositing effects to reduce iGPU wakeups and 
 Make sure the script is executable:
 
 ```bash
-chmod +x kde-abm-power-manager.sh
+chmod +x additional-power-management-tweaks.sh
 ```
 
 ### Command Line
 
 ```bash
 # Switched to AC power
-./kde-abm-power-manager.sh ac
+./additional-power-management-tweaks.sh ac
 
 # Switched to Battery
-./kde-abm-power-manager.sh battery
+./additional-power-management-tweaks.sh battery
 
 # Low Battery alert
-./kde-abm-power-manager.sh low_battery
+./additional-power-management-tweaks.sh low_battery
 # or
-./kde-abm-power-manager.sh "low battery"
+./additional-power-management-tweaks.sh "low battery"
 ```
 
 ### Specifying a Display Output
 By default, the script auto-detects the first `eDP*` internal panel reported by `kscreen-doctor -o` (falling back to `eDP-1`). You can also pass an explicit display name:
 
 ```bash
-./kde-abm-power-manager.sh battery eDP-1
+./additional-power-management-tweaks.sh battery eDP-1
 ```
 
 ---
@@ -64,15 +64,15 @@ By default, the script auto-detects the first `eDP*` internal panel reported by 
 2. Configure the script under each power state:
    - **On AC Power** → Expand **Run Script** → Add:
      ```bash
-     /home/roboy/gh/kde-abm-power-manager/kde-abm-power-manager.sh ac
+     /home/roboy/gh/kde-abm-power-manager/additional-power-management-tweaks.sh ac
      ```
    - **On Battery** → Expand **Run Script** → Add:
      ```bash
-     /home/roboy/gh/kde-abm-power-manager/kde-abm-power-manager.sh battery
+     /home/roboy/gh/kde-abm-power-manager/additional-power-management-tweaks.sh battery
      ```
    - **On Low Battery** → Expand **Run Script** → Add:
      ```bash
-     /home/roboy/gh/kde-abm-power-manager/kde-abm-power-manager.sh low_battery
+     /home/roboy/gh/kde-abm-power-manager/additional-power-management-tweaks.sh low_battery
      ```
 
 ---
