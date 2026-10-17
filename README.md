@@ -1,20 +1,30 @@
-# KDE ABM Power Manager
+# KDE ABM & Display Power Manager
 
-A lightweight shell script to automatically adjust **Adaptive Backlight Modulation (ABM)** on KDE Plasma (Wayland) depending on power state (`ac`, `battery`, or `low battery`) using `kscreen-doctor`.
+A lightweight script to automatically adjust **Adaptive Backlight Modulation (ABM)**, display rendering pipelines, and KWin compositor effects on KDE Plasma (Wayland) depending on power state (`ac`, `battery`, or `low battery`).
 
-## Overview
+Runs cleanly in user space without requiring `sudo` or root privileges, making it directly usable inside **KDE System Settings → Power Management → Run script**.
 
-AMD GPUs with internal eDP panels support hardware-assisted **Adaptive Backlight Modulation (ABM)** (exposed by the `amdgpu` kernel driver as `panel power savings` and managed by KWin via the `kde-output-management-v2` protocol).
+---
 
-While KDE Plasma exposes this setting in **System Settings → Display & Monitor**, `kscreen-doctor --help` does not currently list the `abm` parameter. Under the hood, `libkscreen` supports setting the ABM level from `0` to `4` via:
+## Features
 
-```bash
-kscreen-doctor output.<name>.abm.<0-4>
-```
+### 1. Display & GPU Pipeline Optimization (via `kscreen-doctor`)
+Leverages hardware and driver-level controls exposed by KWin and `amdgpu`:
 
- This script wraps `kscreen-doctor` to switch ABM levels based on your power profile or power state:
-- **`ac`** → Sets ABM level to `0` (Disabled / full color accuracy)
-- **`battery` / `low_battery` / `"low battery"`** → Sets ABM level to `4` (Maximum power saving)
+| Setting | AC Mode (`ac`) | Battery Mode (`battery`) | Low Battery (`low_battery`) | Power Benefit |
+| :--- | :--- | :--- | :--- | :--- |
+| **ABM (Backlight Modulation)** | `0` (Disabled) | `4` (Maximum) | `4` (Maximum) | Reduces panel backlight draw by modulating contrast |
+| **Color Power Tradeoff** | `preferAccuracy` | `preferEfficiency` | `preferEfficiency` | Enables direct scanout (MPO planes) & lower-power framebuffer formats |
+| **Color Bit Depth (`maxbpc`)** | `automatic` (10/16-bit) | `8` (8-bit) | `8` (8-bit) | Reduces eDP link bandwidth and display engine power |
+| **EDR Policy** | `always` | `never` | `never` | Blocks apps from driving peak backlight headroom |
+| **Software Dimming** | `100%` | `100%` | `80%` | Additional software dimming for emergency battery conservation |
+
+### 2. KWin Compositor Effects (via `qdbus6`)
+Disables shader-heavy background compositing effects to reduce iGPU wakeups and draw cycles:
+- **`blur`**: Unloaded on battery; reloaded on AC.
+- **`translucency`**: Unloaded on battery; reloaded on AC.
+
+---
 
 ## Usage
 
@@ -24,42 +34,51 @@ Make sure the script is executable:
 chmod +x kde-abm-power-manager.sh
 ```
 
-Run with the desired power state:
+### Command Line
 
 ```bash
-# On AC power (sets ABM to 0)
+# Switched to AC power
 ./kde-abm-power-manager.sh ac
 
-# On Battery power (sets ABM to 4)
+# Switched to Battery
 ./kde-abm-power-manager.sh battery
 
-# On Low Battery (sets ABM to 4)
-./kde-abm-power-manager.sh "low battery"
+# Low Battery alert
 ./kde-abm-power-manager.sh low_battery
+# or
+./kde-abm-power-manager.sh "low battery"
 ```
 
-### Specifying the Display Output
-
-By default, the script auto-detects the first `eDP*` internal panel reported by `kscreen-doctor -o` (falling back to `eDP-1`). You can also pass a specific output name as the second argument:
+### Specifying a Display Output
+By default, the script auto-detects the first `eDP*` internal panel reported by `kscreen-doctor -o` (falling back to `eDP-1`). You can also pass an explicit display name:
 
 ```bash
 ./kde-abm-power-manager.sh battery eDP-1
 ```
 
+---
+
 ## Integrating with KDE Power Management (PowerDevil)
 
-You can configure KDE Plasma to run this script automatically when switching between AC, Battery, and Low Battery states:
-
 1. Open **System Settings** → **Power Management**.
-2. For each tab (**On AC Power**, **On Battery**, **On Low Battery**):
-   - Expand **Run Script** (or **Other Settings** → **When entering state**).
-   - Select the script path and pass the corresponding parameter:
-     - **On AC Power**: `/home/roboy/gh/kde-abm-power-manager/kde-abm-power-manager.sh ac`
-     - **On Battery**: `/home/roboy/gh/kde-abm-power-manager/kde-abm-power-manager.sh battery`
-     - **On Low Battery**: `/home/roboy/gh/kde-abm-power-manager/kde-abm-power-manager.sh low_battery`
+2. Configure the script under each power state:
+   - **On AC Power** → Expand **Run Script** → Add:
+     ```bash
+     /home/roboy/gh/kde-abm-power-manager/kde-abm-power-manager.sh ac
+     ```
+   - **On Battery** → Expand **Run Script** → Add:
+     ```bash
+     /home/roboy/gh/kde-abm-power-manager/kde-abm-power-manager.sh battery
+     ```
+   - **On Low Battery** → Expand **Run Script** → Add:
+     ```bash
+     /home/roboy/gh/kde-abm-power-manager/kde-abm-power-manager.sh low_battery
+     ```
+
+---
 
 ## Credits & AI Disclaimer
 
-Developed with assistance from **Antigravity (Google DeepMind)**. The undocumented `kscreen-doctor output.<name>.abm.<0-4>` command was identified by inspecting the `kscreen-doctor` binary symbols and verifying the parser implementation in upstream `plasma/libkscreen` (`src/doctor/doctor.cpp`).
+Developed with assistance from **Antigravity (Google DeepMind)**. Display parameters (`abm`, `colorPowerTradeoff`, `maxbpc`, `edrPolicy`, `dimming`) were reverse-engineered from KDE's upstream `plasma/libkscreen` (`src/doctor/doctor.cpp`) and verified on Wayland.
 
 > **Disclaimer:** This project contains code and documentation generated with the assistance of an experimental AI coding assistant. Please review and test scripts on your hardware before deploying them in automated system hooks.
