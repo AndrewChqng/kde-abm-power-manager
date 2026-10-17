@@ -43,6 +43,11 @@ Disables shader-heavy rendering, spring physics, and multi-frame geometry transf
 - **Battery / Low Battery**: Pauses `arch-update.timer` to prevent background network probes and package cache refreshes from waking up the CPU/WiFi.
 - **AC**: Resumes `arch-update.timer`.
 
+### 7. System Color Scheme / Dark Mode (`plasma-apply-colorscheme`)
+- **Why it matters for ABM**: Adaptive Backlight Modulation analyzes screen content brightness. Dark backgrounds allow ABM to aggressively drop the physical panel backlight without losing detail, yielding maximum power savings.
+- **Battery / Low Battery**: Automatically switches Plasma to `BreezeDark` (and triggers the FreeDesktop `prefer-dark` portal). If you were using a light theme on AC, your active scheme is saved to `~/.local/state/kde-power-management/ac-colorscheme`.
+- **AC**: Seamlessly restores your original AC color scheme.
+
 ---
 
 ## Usage

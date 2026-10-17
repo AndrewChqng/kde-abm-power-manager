@@ -24,6 +24,9 @@
 #   6. Background System Update Timers (systemd --user):
 #      - arch-update.timer stopped on Battery / Low Battery to avoid background network/CPU wakeups
 #      - Started on AC
+#   7. System Color Scheme / Dark Mode (plasma-apply-colorscheme):
+#      - Switches to BreezeDark on Battery / Low Battery to maximize ABM backlight power savings
+#      - Saves and restores original color scheme when returning to AC
 #
 # Usage:
 #   additional-power-management-tweaks.sh <ac|battery|low_battery|"low battery"> [output_name]
@@ -45,6 +48,7 @@ Modes:
                               - Bluetooth: unblocked
                               - IdeaPad USB charging: enabled
                               - arch-update.timer: active
+                              - Color scheme: restored to AC preference
 
   battery                   Standard battery power profile:
                               - ABM: 4 (maximum power saving)
@@ -56,6 +60,7 @@ Modes:
                               - Bluetooth: blocked if no device is connected
                               - Keyboard backlight: turned off
                               - arch-update.timer: paused
+                              - Color scheme: switched to BreezeDark for ABM
 
   low_battery, "low battery", low-battery, low
                             Aggressive battery saving profile:
@@ -90,6 +95,7 @@ case "$MODE" in
         BLUETOOTH_ACTION="unblock"
         USB_CHARGING=1
         PAUSE_UPDATE_TIMER=false
+        COLOR_SCHEME_MODE="restore"
         ;;
     battery)
         ABM_LEVEL=4
@@ -102,6 +108,7 @@ case "$MODE" in
         BLUETOOTH_ACTION="auto_block"
         USB_CHARGING=1
         PAUSE_UPDATE_TIMER=true
+        COLOR_SCHEME_MODE="dark"
         ;;
     low_battery|"low battery"|low-battery|low)
         ABM_LEVEL=4
@@ -114,6 +121,7 @@ case "$MODE" in
         BLUETOOTH_ACTION="auto_block"
         USB_CHARGING=0
         PAUSE_UPDATE_TIMER=true
+        COLOR_SCHEME_MODE="dark"
         ;;
     -h|--help|help)
         usage
@@ -258,6 +266,39 @@ if command -v systemctl >/dev/null 2>&1; then
         if ! systemctl --user is-active --quiet arch-update.timer 2>/dev/null; then
             echo "Resuming arch-update.timer on AC..."
             systemctl --user start arch-update.timer 2>/dev/null || true
+        fi
+    fi
+fi
+
+# ---------------------------------------------------------
+# 7. System Color Scheme / Dark Mode (plasma-apply-colorscheme)
+# ---------------------------------------------------------
+if command -v plasma-apply-colorscheme >/dev/null 2>&1; then
+    SCHEME_STATE_FILE="${XDG_STATE_HOME:-$HOME/.local/state}/kde-power-management/ac-colorscheme"
+    CURRENT_SCHEME=""
+    if command -v kreadconfig6 >/dev/null 2>&1; then
+        CURRENT_SCHEME=$(kreadconfig6 --file kdeglobals --group General --key ColorScheme 2>/dev/null || true)
+    fi
+
+    if [[ "$COLOR_SCHEME_MODE" == "dark" ]]; then
+        # If currently not on a dark scheme, save the active scheme to restore on AC
+        if [[ "$CURRENT_SCHEME" != "BreezeDark" ]]; then
+            mkdir -p "$(dirname "$SCHEME_STATE_FILE")"
+            if [[ -n "$CURRENT_SCHEME" ]]; then
+                echo "$CURRENT_SCHEME" > "$SCHEME_STATE_FILE"
+            fi
+            echo "Switching to dark color scheme (BreezeDark) to maximize ABM power savings..."
+            plasma-apply-colorscheme BreezeDark >/dev/null 2>&1 || true
+        fi
+    elif [[ "$COLOR_SCHEME_MODE" == "restore" ]]; then
+        # Restore saved AC color scheme if present
+        if [[ -f "$SCHEME_STATE_FILE" ]]; then
+            SAVED_SCHEME=$(cat "$SCHEME_STATE_FILE" 2>/dev/null || true)
+            rm -f "$SCHEME_STATE_FILE"
+            if [[ -n "$SAVED_SCHEME" && "$SAVED_SCHEME" != "$CURRENT_SCHEME" ]]; then
+                echo "Restoring AC color scheme (${SAVED_SCHEME})..."
+                plasma-apply-colorscheme "$SAVED_SCHEME" >/dev/null 2>&1 || true
+            fi
         fi
     fi
 fi
