@@ -4,6 +4,8 @@
 #
 # Supports:
 #   1. Display & GPU Pipeline (via kscreen-doctor):
+#      - Refresh Rate (all active displays): max for current resolution on AC,
+#        lowest for current resolution on Battery / Low Battery
 #      - Adaptive Backlight Modulation (ABM): 0 on AC, 4 on Battery / Low Battery
 #      - Color Power Tradeoff: preferAccuracy on AC, preferEfficiency on Battery / Low Battery
 #      - Color Bit Depth (maxbpc): automatic on AC, 8 on Battery / Low Battery
@@ -48,6 +50,7 @@ Usage: $(basename "$0") <mode> [output]
 
 Modes:
   ac                        AC power profile:
+                              - Refresh rate (all displays): maximum for current resolution
                               - ABM: 0 (disabled)
                               - Color power tradeoff: preferAccuracy
                               - Max bits per color (maxbpc): automatic
@@ -64,6 +67,7 @@ Modes:
                               - Color scheme: restored to AC preference
 
   battery                   Standard battery power profile:
+                              - Refresh rate (all displays): lowest for current resolution
                               - ABM: 4 (maximum power saving)
                               - Color power tradeoff: preferEfficiency
                               - Max bits per color (maxbpc): 8
@@ -104,6 +108,7 @@ OUTPUT="${2:-}"
 
 case "$MODE" in
     ac)
+        REFRESH_TARGET="max"
         ABM_LEVEL=0
         COLOR_POWER="preferAccuracy"
         MAX_BPC="automatic"
@@ -121,6 +126,7 @@ case "$MODE" in
         COLOR_SCHEME_MODE="restore"
         ;;
     battery)
+        REFRESH_TARGET="min"
         ABM_LEVEL=4
         COLOR_POWER="preferEfficiency"
         MAX_BPC="8"
@@ -138,6 +144,7 @@ case "$MODE" in
         COLOR_SCHEME_MODE="dark"
         ;;
     low_battery|"low battery"|low-battery|low)
+        REFRESH_TARGET="min"
         ABM_LEVEL=4
         COLOR_POWER="preferEfficiency"
         MAX_BPC="8"
@@ -179,6 +186,7 @@ fi
 # 1. Display & GPU Pipeline Tweaks (kscreen-doctor)
 # ---------------------------------------------------------
 if command -v kscreen-doctor >/dev/null 2>&1; then
+    EXPLICIT_OUTPUT="$OUTPUT"
     # Auto-detect internal eDP display if not explicitly provided
     if [[ -z "$OUTPUT" ]]; then
         DETECTED_OUTPUT=$(kscreen-doctor -o 2>/dev/null \
@@ -195,15 +203,42 @@ if command -v kscreen-doctor >/dev/null 2>&1; then
     echo "  - VRR policy: ${VRR_POLICY}"
     echo "  - Dimming: ${DIMMING}%"
 
-    kscreen-doctor \
-        "output.${OUTPUT}.abm.${ABM_LEVEL}" \
-        "output.${OUTPUT}.colorPowerTradeoff.${COLOR_POWER}" \
-        "output.${OUTPUT}.maxbpc.${MAX_BPC}" \
-        "output.${OUTPUT}.edrPolicy.${EDR_POLICY}" \
-        "output.${OUTPUT}.vrrpolicy.${VRR_POLICY}" \
-        "output.${OUTPUT}.dimming.${DIMMING}" || {
-            echo "Warning: Some kscreen-doctor parameters could not be applied." >&2
-        }
+    KSCREEN_ARGS=(
+        "output.${OUTPUT}.abm.${ABM_LEVEL}"
+        "output.${OUTPUT}.colorPowerTradeoff.${COLOR_POWER}"
+        "output.${OUTPUT}.maxbpc.${MAX_BPC}"
+        "output.${OUTPUT}.edrPolicy.${EDR_POLICY}"
+        "output.${OUTPUT}.vrrpolicy.${VRR_POLICY}"
+        "output.${OUTPUT}.dimming.${DIMMING}"
+    )
+
+    # Select max (AC) or min (Battery/Low Battery) refresh rate per active display
+    # while preserving each display's current resolution.
+    if command -v jq >/dev/null 2>&1; then
+        while IFS=$'\t' read -r DISP_NAME DISP_RES MODE_ID MODE_HZ; do
+            [[ -z "$DISP_NAME" || -z "$MODE_ID" ]] && continue
+            if [[ -n "$EXPLICIT_OUTPUT" && "$DISP_NAME" != "$EXPLICIT_OUTPUT" ]]; then
+                continue
+            fi
+            printf "  - Refresh rate (%s @ %s): %s (%.2f Hz, mode %s)\n" \
+                "$DISP_NAME" "$DISP_RES" "$REFRESH_TARGET" "$MODE_HZ" "$MODE_ID"
+            KSCREEN_ARGS+=("output.${DISP_NAME}.mode.${MODE_ID}")
+        done < <(
+            kscreen-doctor -j 2>/dev/null | jq -r --arg target "$REFRESH_TARGET" '
+                .outputs[]
+                | select(.connected == true and .enabled == true and .currentModeId != null)
+                | . as $out
+                | ($out.modes[] | select(.id == $out.currentModeId)) as $cur
+                | ($out.modes | map(select(.size.width == $cur.size.width and .size.height == $cur.size.height))) as $same_res
+                | (if $target == "max" then ($same_res | max_by(.refreshRate)) else ($same_res | min_by(.refreshRate)) end) as $chosen
+                | "\($out.name)\t\($cur.size.width)x\($cur.size.height)\t\($chosen.id)\t\($chosen.refreshRate)"
+            ' || true
+        )
+    fi
+
+    kscreen-doctor "${KSCREEN_ARGS[@]}" || {
+        echo "Warning: Some kscreen-doctor parameters could not be applied." >&2
+    }
 else
     echo "Warning: kscreen-doctor not found, skipping display tweaks." >&2
 fi

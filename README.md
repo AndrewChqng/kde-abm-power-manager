@@ -13,6 +13,7 @@ Leverages hardware and driver-level controls exposed by KWin and `amdgpu`:
 
 | Setting | AC Mode (`ac`) | Battery Mode (`battery`) | Low Battery (`low_battery`) | Power Benefit |
 | :--- | :--- | :--- | :--- | :--- |
+| **Refresh Rate (All Displays)** | `Max Hz` (at current res) | `Lowest Hz` (at current res) | `Lowest Hz` (at current res) | Cuts GPU scanout & panel timing controller power on multi-rate displays |
 | **ABM (Backlight Modulation)** | `0` (Disabled) | `4` (Maximum) | `4` (Maximum) | Reduces panel backlight draw by modulating contrast |
 | **Color Power Tradeoff** | `preferAccuracy` | `preferEfficiency` | `preferEfficiency` | Enables direct scanout (MPO planes) & lower-power framebuffer formats |
 | **Color Bit Depth (`maxbpc`)** | `automatic` (10/16-bit) | `8` (8-bit) | `8` (8-bit) | Reduces eDP link bandwidth and display engine power |
