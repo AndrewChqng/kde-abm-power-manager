@@ -17,6 +17,7 @@ Leverages hardware and driver-level controls exposed by KWin and `amdgpu`:
 | **Color Power Tradeoff** | `preferAccuracy` | `preferEfficiency` | `preferEfficiency` | Enables direct scanout (MPO planes) & lower-power framebuffer formats |
 | **Color Bit Depth (`maxbpc`)** | `automatic` (10/16-bit) | `8` (8-bit) | `8` (8-bit) | Reduces eDP link bandwidth and display engine power |
 | **EDR Policy** | `always` | `never` | `never` | Blocks apps from driving peak backlight headroom |
+| **Adaptive Sync (`vrrpolicy`)** | `automatic` | `always` | `always` | Allows the panel to drop refresh rate during static/video content |
 | **Software Dimming** | `100%` | `100%` | `80%` | Additional software dimming for emergency battery conservation |
 
 ### 2. KWin Compositor & Animation Effects (via `qdbus6`)
@@ -28,22 +29,30 @@ Disables shader-heavy rendering, spring physics, and multi-frame geometry transf
 - **Virtual Desktops & Shell**: `slide`, `slideback`, `slidingpopups`, `slidingnotifications`
 *(All unloaded on Battery / Low Battery; restored on AC)*
 
-### 3. Smart Bluetooth Management (`rfkill` / `bluetoothctl`)
+### 3. KDE Background Watchers / KDED6 Modules (via `qdbus6`)
+- **Battery / Low Battery**: Unloads non-essential background polling modules in `kded6` (`smbwatcher`, `remotenotifier`, `freespacenotifier`) to reduce periodic disk/network wakeups.
+- **AC**: Reloads all three modules.
+
+### 4. Smart Bluetooth Management (`rfkill` / `bluetoothctl`)
 - **Battery / Low Battery**: Checks `bluetoothctl devices Connected`. If **no active devices** are connected (e.g. mouse, headphones), Bluetooth is soft-blocked to stop continuous inquiry/page scanning. If a device **is** connected, Bluetooth remains active uninterrupted.
 - **AC**: Bluetooth is automatically unblocked.
 
-### 4. Keyboard Backlight Auto-Off (KDE Solid D-Bus)
+### 5. Keyboard Backlight Auto-Off (KDE Solid D-Bus)
 - Automatically sets keyboard brightness to `0` on **Battery** and **Low Battery** to eliminate physical LED drain.
 
-### 5. IdeaPad Always-On USB Charging (`ideapad_acpi`)
+### 6. IdeaPad Always-On USB Charging (`ideapad_acpi`)
 - **Low Battery**: Shuts off external USB standby port charging (`usb_charging = 0`) to prevent attached dongles, cables, or external devices from draining the remaining emergency reserve.
 - **AC / Battery**: Kept enabled (`1`).
 
-### 6. Background System Update Timers (`systemd --user`)
-- **Battery / Low Battery**: Pauses `arch-update.timer` to prevent background network probes and package cache refreshes from waking up the CPU/WiFi.
-- **AC**: Resumes `arch-update.timer`.
+### 7. Background Update Timers & Foreground Boosters (`systemd --user`)
+- **Update Timers (`arch-update.timer`)**: Paused on **Battery** and **Low Battery** to avoid background network probes and package cache refreshes; resumed on **AC**.
+- **Foreground CPU/GPU Boosters (`plasma-foreground-booster.service` & `dmemcg-booster-user.service`)**: Stopped on **Low Battery** to prevent aggressive CPU cgroup boost spikes when switching windows; kept active on **AC** and **Battery**.
 
-### 7. System Color Scheme / Dark Mode (`plasma-apply-colorscheme`)
+### 8. PipeWire Audio Buffer Quantum (`pw-metadata`)
+- **Low Battery**: Forces `clock.force-quantum` to `2048` samples, cutting audio thread CPU wakeups and interrupts by 2x–8x during media playback or calls.
+- **AC / Battery**: Reset to `0` (dynamic low-latency buffer scaling).
+
+### 9. System Color Scheme / Dark Mode (`plasma-apply-colorscheme`)
 - **Why it matters for ABM**: Adaptive Backlight Modulation analyzes screen content brightness. Dark backgrounds allow ABM to aggressively drop the physical panel backlight without losing detail, yielding maximum power savings.
 - **Battery / Low Battery**: Automatically switches Plasma to `BreezeDark` (and triggers the FreeDesktop `prefer-dark` portal). If you were using a light theme on AC, your active scheme is saved to `~/.local/state/kde-power-management/ac-colorscheme`.
 - **AC**: Seamlessly restores your original AC color scheme.

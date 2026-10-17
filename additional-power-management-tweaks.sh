@@ -8,23 +8,31 @@
 #      - Color Power Tradeoff: preferAccuracy on AC, preferEfficiency on Battery / Low Battery
 #      - Color Bit Depth (maxbpc): automatic on AC, 8 on Battery / Low Battery
 #      - EDR Policy: always on AC, never on Battery / Low Battery
+#      - Adaptive Sync / VRR Policy: automatic on AC, always on Battery / Low Battery
 #      - Display Dimming: 100% on AC / Battery, 80% on Low Battery
 #   2. KWin Compositor Effects (via qdbus6):
 #      - blur, translucency, wobblywindows, scale, squash, slide, slideback,
 #        slidingpopups, slidingnotifications, fallapart, touchpoints:
 #        loaded on AC, unloaded on Battery / Low Battery (cuts continuous CPU/GPU redraw)
-#   3. Smart Bluetooth Power Management (rfkill / bluetoothctl):
+#   3. KDE Background Watchers / KDED6 Modules (via qdbus6):
+#      - smbwatcher, remotenotifier, freespacenotifier:
+#        loaded on AC, unloaded on Battery / Low Battery
+#   4. Smart Bluetooth Power Management (rfkill / bluetoothctl):
 #      - Unblocked on AC
 #      - Soft-blocked on Battery / Low Battery ONLY if no Bluetooth device is currently connected
-#   4. Keyboard Backlight (via KDE Solid D-Bus):
+#   5. Keyboard Backlight (via KDE Solid D-Bus):
 #      - Turned off (level 0) on Battery / Low Battery
-#   5. Lenovo IdeaPad USB Standby Charging:
+#   6. Lenovo IdeaPad USB Standby Charging:
 #      - Disabled (0) on Low Battery to prevent peripherals/cables from siphoning reserve power
 #      - Enabled (1) on AC / Battery
-#   6. Background System Update Timers (systemd --user):
-#      - arch-update.timer stopped on Battery / Low Battery to avoid background network/CPU wakeups
-#      - Started on AC
-#   7. System Color Scheme / Dark Mode (plasma-apply-colorscheme):
+#   7. Background System Update Timers & Foreground Boosters (systemd --user):
+#      - arch-update.timer stopped on Battery / Low Battery, started on AC
+#      - plasma-foreground-booster.service & dmemcg-booster-user.service stopped on Low Battery,
+#        started on AC / Battery
+#   8. PipeWire Audio Buffer Quantum (pw-metadata):
+#      - Forced to 2048 samples on Low Battery to reduce audio CPU interrupts
+#      - Reset to 0 (dynamic low-latency) on AC / Battery
+#   9. System Color Scheme / Dark Mode (plasma-apply-colorscheme):
 #      - Switches to BreezeDark on Battery / Low Battery to maximize ABM backlight power savings
 #      - Saves and restores original color scheme when returning to AC
 #
@@ -43,11 +51,15 @@ Modes:
                               - Color power tradeoff: preferAccuracy
                               - Max bits per color (maxbpc): automatic
                               - EDR policy: always
+                              - VRR policy: automatic
                               - Display dimming: 100%
                               - KWin visual & animation effects: enabled
+                              - KDED background watchers: enabled
                               - Bluetooth: unblocked
                               - IdeaPad USB charging: enabled
                               - arch-update.timer: active
+                              - Foreground CPU/GPU boosters: active
+                              - PipeWire force-quantum: 0 (dynamic)
                               - Color scheme: restored to AC preference
 
   battery                   Standard battery power profile:
@@ -55,11 +67,15 @@ Modes:
                               - Color power tradeoff: preferEfficiency
                               - Max bits per color (maxbpc): 8
                               - EDR policy: never
+                              - VRR policy: always
                               - Display dimming: 100%
                               - KWin visual & animation effects: disabled (instant rendering)
+                              - KDED background watchers: unloaded
                               - Bluetooth: blocked if no device is connected
                               - Keyboard backlight: turned off
                               - arch-update.timer: paused
+                              - Foreground CPU/GPU boosters: active
+                              - PipeWire force-quantum: 0 (dynamic)
                               - Color scheme: switched to BreezeDark for ABM
 
   low_battery, "low battery", low-battery, low
@@ -67,6 +83,8 @@ Modes:
                               - All battery optimizations above
                               - Display dimming: 80%
                               - IdeaPad USB standby charging: disabled
+                              - Foreground CPU/GPU boosters: stopped
+                              - PipeWire force-quantum: 2048 (large power-saving buffer)
 
 Arguments:
   output                    Optional display output name (e.g. eDP-1).
@@ -89,12 +107,16 @@ case "$MODE" in
         COLOR_POWER="preferAccuracy"
         MAX_BPC="automatic"
         EDR_POLICY="always"
+        VRR_POLICY="automatic"
         DIMMING=100
         ENABLE_COMPOSITOR_EFFECTS=true
+        ENABLE_KDED_WATCHERS=true
         DISABLE_KBD_BACKLIGHT=false
         BLUETOOTH_ACTION="unblock"
         USB_CHARGING=1
         PAUSE_UPDATE_TIMER=false
+        PAUSE_FOREGROUND_BOOSTERS=false
+        PIPEWIRE_FORCE_QUANTUM=0
         COLOR_SCHEME_MODE="restore"
         ;;
     battery)
@@ -102,12 +124,16 @@ case "$MODE" in
         COLOR_POWER="preferEfficiency"
         MAX_BPC="8"
         EDR_POLICY="never"
+        VRR_POLICY="always"
         DIMMING=100
         ENABLE_COMPOSITOR_EFFECTS=false
+        ENABLE_KDED_WATCHERS=false
         DISABLE_KBD_BACKLIGHT=true
         BLUETOOTH_ACTION="auto_block"
         USB_CHARGING=1
         PAUSE_UPDATE_TIMER=true
+        PAUSE_FOREGROUND_BOOSTERS=false
+        PIPEWIRE_FORCE_QUANTUM=0
         COLOR_SCHEME_MODE="dark"
         ;;
     low_battery|"low battery"|low-battery|low)
@@ -115,12 +141,16 @@ case "$MODE" in
         COLOR_POWER="preferEfficiency"
         MAX_BPC="8"
         EDR_POLICY="never"
+        VRR_POLICY="always"
         DIMMING=80
         ENABLE_COMPOSITOR_EFFECTS=false
+        ENABLE_KDED_WATCHERS=false
         DISABLE_KBD_BACKLIGHT=true
         BLUETOOTH_ACTION="auto_block"
         USB_CHARGING=0
         PAUSE_UPDATE_TIMER=true
+        PAUSE_FOREGROUND_BOOSTERS=true
+        PIPEWIRE_FORCE_QUANTUM=2048
         COLOR_SCHEME_MODE="dark"
         ;;
     -h|--help|help)
@@ -161,6 +191,7 @@ if command -v kscreen-doctor >/dev/null 2>&1; then
     echo "  - Color power tradeoff: ${COLOR_POWER}"
     echo "  - Max bits per color: ${MAX_BPC}"
     echo "  - EDR policy: ${EDR_POLICY}"
+    echo "  - VRR policy: ${VRR_POLICY}"
     echo "  - Dimming: ${DIMMING}%"
 
     kscreen-doctor \
@@ -168,6 +199,7 @@ if command -v kscreen-doctor >/dev/null 2>&1; then
         "output.${OUTPUT}.colorPowerTradeoff.${COLOR_POWER}" \
         "output.${OUTPUT}.maxbpc.${MAX_BPC}" \
         "output.${OUTPUT}.edrPolicy.${EDR_POLICY}" \
+        "output.${OUTPUT}.vrrpolicy.${VRR_POLICY}" \
         "output.${OUTPUT}.dimming.${DIMMING}" || {
             echo "Warning: Some kscreen-doctor parameters could not be applied." >&2
         }
@@ -207,7 +239,29 @@ if [[ -n "$QDBUS_BIN" ]]; then
 fi
 
 # ---------------------------------------------------------
-# 3. Smart Bluetooth Management (rfkill / bluetoothctl)
+# 3. KDE Background Watchers / KDED Modules (qdbus)
+# ---------------------------------------------------------
+if [[ -n "$QDBUS_BIN" ]]; then
+    KDED_WATCHER_MODULES=(
+        "smbwatcher"
+        "remotenotifier"
+        "freespacenotifier"
+    )
+    if [[ "$ENABLE_KDED_WATCHERS" == "true" ]]; then
+        echo "Restoring KDED background watcher modules (${KDED_WATCHER_MODULES[*]})..."
+        for mod in "${KDED_WATCHER_MODULES[@]}"; do
+            "$QDBUS_BIN" org.kde.kded6 /kded org.kde.kded6.loadModule "$mod" >/dev/null 2>&1 || true
+        done
+    else
+        echo "Unloading KDED background watcher modules (${KDED_WATCHER_MODULES[*]})..."
+        for mod in "${KDED_WATCHER_MODULES[@]}"; do
+            "$QDBUS_BIN" org.kde.kded6 /kded org.kde.kded6.unloadModule "$mod" >/dev/null 2>&1 || true
+        done
+    fi
+fi
+
+# ---------------------------------------------------------
+# 4. Smart Bluetooth Management (rfkill / bluetoothctl)
 # ---------------------------------------------------------
 if command -v rfkill >/dev/null 2>&1; then
     if [[ "$BLUETOOTH_ACTION" == "unblock" ]]; then
@@ -232,7 +286,7 @@ if command -v rfkill >/dev/null 2>&1; then
 fi
 
 # ---------------------------------------------------------
-# 4. Keyboard Backlight Auto-Off (KDE Solid D-Bus)
+# 5. Keyboard Backlight Auto-Off (KDE Solid D-Bus)
 # ---------------------------------------------------------
 if [[ "$DISABLE_KBD_BACKLIGHT" == "true" && -n "$QDBUS_BIN" ]]; then
     echo "Turning off keyboard backlight on battery..."
@@ -242,7 +296,7 @@ if [[ "$DISABLE_KBD_BACKLIGHT" == "true" && -n "$QDBUS_BIN" ]]; then
 fi
 
 # ---------------------------------------------------------
-# 5. IdeaPad Always-On USB Charging (Low Battery only)
+# 6. IdeaPad Always-On USB Charging (Low Battery only)
 # ---------------------------------------------------------
 IDEAPAD_USB_NODE="/sys/bus/platform/drivers/ideapad_acpi/VPC2004:00/usb_charging"
 if [[ -w "$IDEAPAD_USB_NODE" ]]; then
@@ -254,7 +308,7 @@ if [[ -w "$IDEAPAD_USB_NODE" ]]; then
 fi
 
 # ---------------------------------------------------------
-# 6. Background Update Timer Throttling (systemd --user)
+# 7. Background Update Timers & Foreground Boosters (systemd --user)
 # ---------------------------------------------------------
 if command -v systemctl >/dev/null 2>&1; then
     if [[ "$PAUSE_UPDATE_TIMER" == "true" ]]; then
@@ -268,10 +322,38 @@ if command -v systemctl >/dev/null 2>&1; then
             systemctl --user start arch-update.timer 2>/dev/null || true
         fi
     fi
+
+    BOOSTER_SERVICES=(
+        "plasma-foreground-booster.service"
+        "dmemcg-booster-user.service"
+    )
+    if [[ "$PAUSE_FOREGROUND_BOOSTERS" == "true" ]]; then
+        for svc in "${BOOSTER_SERVICES[@]}"; do
+            if systemctl --user is-active --quiet "$svc" 2>/dev/null; then
+                echo "Stopping ${svc} on low battery..."
+                systemctl --user stop "$svc" 2>/dev/null || true
+            fi
+        done
+    else
+        for svc in "${BOOSTER_SERVICES[@]}"; do
+            if systemctl --user list-unit-files "$svc" >/dev/null 2>&1 && ! systemctl --user is-active --quiet "$svc" 2>/dev/null; then
+                echo "Starting ${svc}..."
+                systemctl --user start "$svc" 2>/dev/null || true
+            fi
+        done
+    fi
 fi
 
 # ---------------------------------------------------------
-# 7. System Color Scheme / Dark Mode (plasma-apply-colorscheme)
+# 8. PipeWire Audio Buffer Quantum (Low Battery only)
+# ---------------------------------------------------------
+if command -v pw-metadata >/dev/null 2>&1; then
+    echo "Setting PipeWire clock.force-quantum to ${PIPEWIRE_FORCE_QUANTUM}..."
+    pw-metadata -n settings 0 clock.force-quantum "${PIPEWIRE_FORCE_QUANTUM}" >/dev/null 2>&1 || true
+fi
+
+# ---------------------------------------------------------
+# 9. System Color Scheme / Dark Mode (plasma-apply-colorscheme)
 # ---------------------------------------------------------
 if command -v plasma-apply-colorscheme >/dev/null 2>&1; then
     SCHEME_STATE_FILE="${XDG_STATE_HOME:-$HOME/.local/state}/kde-power-management/ac-colorscheme"
