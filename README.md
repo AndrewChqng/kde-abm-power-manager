@@ -1,12 +1,12 @@
-# KDE ABM & Display Power Manager
+# KDE Additional Power Management Tweaks
 
-A lightweight script to automatically adjust **Adaptive Backlight Modulation (ABM)**, display rendering pipelines, and KWin compositor effects on KDE Plasma (Wayland) depending on power state (`ac`, `battery`, or `low battery`).
+A lightweight, non-intrusive power management script designed for KDE Plasma (Wayland) on modern AMD laptops (such as Lenovo IdeaPad/Slim series).
 
 Runs cleanly in user space without requiring `sudo` or root privileges, making it directly usable inside **KDE System Settings → Power Management → Run script**.
 
 ---
 
-## Features
+## What It Optimizes
 
 ### 1. Display & GPU Pipeline Optimization (via `kscreen-doctor`)
 Leverages hardware and driver-level controls exposed by KWin and `amdgpu`:
@@ -20,9 +20,25 @@ Leverages hardware and driver-level controls exposed by KWin and `amdgpu`:
 | **Software Dimming** | `100%` | `100%` | `80%` | Additional software dimming for emergency battery conservation |
 
 ### 2. KWin Compositor Effects (via `qdbus6`)
-Disables shader-heavy background compositing effects to reduce iGPU wakeups and draw cycles:
+Disables shader-heavy and physics-based background compositing effects to reduce iGPU wakeups and draw cycles:
 - **`blur`**: Unloaded on battery; reloaded on AC.
 - **`translucency`**: Unloaded on battery; reloaded on AC.
+- **`wobblywindows`**: Unloaded on battery; reloaded on AC.
+
+### 3. Smart Bluetooth Management (`rfkill` / `bluetoothctl`)
+- **Battery / Low Battery**: Checks `bluetoothctl devices Connected`. If **no active devices** are connected (e.g. mouse, headphones), Bluetooth is soft-blocked to stop continuous inquiry/page scanning. If a device **is** connected, Bluetooth remains active uninterrupted.
+- **AC**: Bluetooth is automatically unblocked.
+
+### 4. Keyboard Backlight Auto-Off (KDE Solid D-Bus)
+- Automatically sets keyboard brightness to `0` on **Battery** and **Low Battery** to eliminate physical LED drain.
+
+### 5. IdeaPad Always-On USB Charging (`ideapad_acpi`)
+- **Low Battery**: Shuts off external USB standby port charging (`usb_charging = 0`) to prevent attached dongles, cables, or external devices from draining the remaining emergency reserve.
+- **AC / Battery**: Kept enabled (`1`).
+
+### 6. Background System Update Timers (`systemd --user`)
+- **Battery / Low Battery**: Pauses `arch-update.timer` to prevent background network probes and package cache refreshes from waking up the CPU/WiFi.
+- **AC**: Resumes `arch-update.timer`.
 
 ---
 

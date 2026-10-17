@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # additional-power-management-tweaks.sh
-# Adjusts KDE Display power parameters and KWin Compositor effects based on power state.
+# Adjusts display, compositor, hardware, and service power parameters based on power state.
 #
 # Supports:
 #   1. Display & GPU Pipeline (via kscreen-doctor):
@@ -10,7 +10,18 @@
 #      - EDR Policy: always on AC, never on Battery / Low Battery
 #      - Display Dimming: 100% on AC / Battery, 80% on Low Battery
 #   2. KWin Compositor Effects (via qdbus6):
-#      - blur & translucency effects: loaded on AC, unloaded on Battery / Low Battery
+#      - blur, translucency, and wobblywindows: loaded on AC, unloaded on Battery / Low Battery
+#   3. Smart Bluetooth Power Management (rfkill / bluetoothctl):
+#      - Unblocked on AC
+#      - Soft-blocked on Battery / Low Battery ONLY if no Bluetooth device is currently connected
+#   4. Keyboard Backlight (via KDE Solid D-Bus):
+#      - Turned off (level 0) on Battery / Low Battery
+#   5. Lenovo IdeaPad USB Standby Charging:
+#      - Disabled (0) on Low Battery to prevent peripherals/cables from siphoning reserve power
+#      - Enabled (1) on AC / Battery
+#   6. Background System Update Timers (systemd --user):
+#      - arch-update.timer stopped on Battery / Low Battery to avoid background network/CPU wakeups
+#      - Started on AC
 #
 # Usage:
 #   additional-power-management-tweaks.sh <ac|battery|low_battery|"low battery"> [output_name]
@@ -28,7 +39,10 @@ Modes:
                               - Max bits per color (maxbpc): automatic
                               - EDR policy: always
                               - Display dimming: 100%
-                              - KWin blur & translucency: enabled
+                              - KWin blur, translucency & wobblywindows: enabled
+                              - Bluetooth: unblocked
+                              - IdeaPad USB charging: enabled
+                              - arch-update.timer: active
 
   battery                   Standard battery power profile:
                               - ABM: 4 (maximum power saving)
@@ -36,12 +50,16 @@ Modes:
                               - Max bits per color (maxbpc): 8
                               - EDR policy: never
                               - Display dimming: 100%
-                              - KWin blur & translucency: disabled
+                              - KWin blur, translucency & wobblywindows: disabled
+                              - Bluetooth: blocked if no device is connected
+                              - Keyboard backlight: turned off
+                              - arch-update.timer: paused
 
   low_battery, "low battery", low-battery, low
                             Aggressive battery saving profile:
                               - All battery optimizations above
                               - Display dimming: 80%
+                              - IdeaPad USB standby charging: disabled
 
 Arguments:
   output                    Optional display output name (e.g. eDP-1).
@@ -66,6 +84,10 @@ case "$MODE" in
         EDR_POLICY="always"
         DIMMING=100
         ENABLE_COMPOSITOR_EFFECTS=true
+        DISABLE_KBD_BACKLIGHT=false
+        BLUETOOTH_ACTION="unblock"
+        USB_CHARGING=1
+        PAUSE_UPDATE_TIMER=false
         ;;
     battery)
         ABM_LEVEL=4
@@ -74,6 +96,10 @@ case "$MODE" in
         EDR_POLICY="never"
         DIMMING=100
         ENABLE_COMPOSITOR_EFFECTS=false
+        DISABLE_KBD_BACKLIGHT=true
+        BLUETOOTH_ACTION="auto_block"
+        USB_CHARGING=1
+        PAUSE_UPDATE_TIMER=true
         ;;
     low_battery|"low battery"|low-battery|low)
         ABM_LEVEL=4
@@ -82,6 +108,10 @@ case "$MODE" in
         EDR_POLICY="never"
         DIMMING=80
         ENABLE_COMPOSITOR_EFFECTS=false
+        DISABLE_KBD_BACKLIGHT=true
+        BLUETOOTH_ACTION="auto_block"
+        USB_CHARGING=0
+        PAUSE_UPDATE_TIMER=true
         ;;
     -h|--help|help)
         usage
@@ -93,6 +123,16 @@ case "$MODE" in
         exit 1
         ;;
 esac
+
+# ---------------------------------------------------------
+# Locate D-Bus utility (qdbus6 or qdbus)
+# ---------------------------------------------------------
+QDBUS_BIN=""
+if command -v qdbus6 >/dev/null 2>&1; then
+    QDBUS_BIN="qdbus6"
+elif command -v qdbus >/dev/null 2>&1; then
+    QDBUS_BIN="qdbus"
+fi
 
 # ---------------------------------------------------------
 # 1. Display & GPU Pipeline Tweaks (kscreen-doctor)
@@ -126,17 +166,10 @@ else
 fi
 
 # ---------------------------------------------------------
-# 2. KWin Compositor Effects Tweaks (qdbus6 / qdbus)
+# 2. KWin Compositor Effects Tweaks (qdbus)
 # ---------------------------------------------------------
-QDBUS_BIN=""
-if command -v qdbus6 >/dev/null 2>&1; then
-    QDBUS_BIN="qdbus6"
-elif command -v qdbus >/dev/null 2>&1; then
-    QDBUS_BIN="qdbus"
-fi
-
 if [[ -n "$QDBUS_BIN" ]]; then
-    HEAVY_EFFECTS=("blur" "translucency")
+    HEAVY_EFFECTS=("blur" "translucency" "wobblywindows")
     if [[ "$ENABLE_COMPOSITOR_EFFECTS" == "true" ]]; then
         echo "Restoring KWin visual effects (${HEAVY_EFFECTS[*]})..."
         for effect in "${HEAVY_EFFECTS[@]}"; do
@@ -147,6 +180,70 @@ if [[ -n "$QDBUS_BIN" ]]; then
         for effect in "${HEAVY_EFFECTS[@]}"; do
             "$QDBUS_BIN" org.kde.KWin /Effects org.kde.kwin.Effects.unloadEffect "$effect" >/dev/null 2>&1 || true
         done
+    fi
+fi
+
+# ---------------------------------------------------------
+# 3. Smart Bluetooth Management (rfkill / bluetoothctl)
+# ---------------------------------------------------------
+if command -v rfkill >/dev/null 2>&1; then
+    if [[ "$BLUETOOTH_ACTION" == "unblock" ]]; then
+        echo "Unblocking Bluetooth on AC..."
+        rfkill unblock bluetooth 2>/dev/null || true
+    elif [[ "$BLUETOOTH_ACTION" == "auto_block" ]]; then
+        # Check if any bluetooth devices are currently connected
+        HAS_CONNECTED_DEVICE=false
+        if command -v bluetoothctl >/dev/null 2>&1; then
+            if bluetoothctl devices Connected 2>/dev/null | grep -q "Device"; then
+                HAS_CONNECTED_DEVICE=true
+            fi
+        fi
+
+        if [[ "$HAS_CONNECTED_DEVICE" == "true" ]]; then
+            echo "Active Bluetooth device connected; keeping Bluetooth active."
+        else
+            echo "No active Bluetooth devices connected; soft-blocking Bluetooth to save power..."
+            rfkill block bluetooth 2>/dev/null || true
+        fi
+    fi
+fi
+
+# ---------------------------------------------------------
+# 4. Keyboard Backlight Auto-Off (KDE Solid D-Bus)
+# ---------------------------------------------------------
+if [[ "$DISABLE_KBD_BACKLIGHT" == "true" && -n "$QDBUS_BIN" ]]; then
+    echo "Turning off keyboard backlight on battery..."
+    "$QDBUS_BIN" org.kde.Solid.PowerManagement \
+        /org/kde/Solid/PowerManagement/Actions/KeyboardBrightnessControl \
+        org.kde.Solid.PowerManagement.Actions.KeyboardBrightnessControl.setKeyboardBrightness 0 >/dev/null 2>&1 || true
+fi
+
+# ---------------------------------------------------------
+# 5. IdeaPad Always-On USB Charging (Low Battery only)
+# ---------------------------------------------------------
+IDEAPAD_USB_NODE="/sys/bus/platform/drivers/ideapad_acpi/VPC2004:00/usb_charging"
+if [[ -w "$IDEAPAD_USB_NODE" ]]; then
+    CURRENT_USB_VAL=$(cat "$IDEAPAD_USB_NODE" 2>/dev/null || true)
+    if [[ "$CURRENT_USB_VAL" != "$USB_CHARGING" ]]; then
+        echo "Setting IdeaPad USB charging to ${USB_CHARGING}..."
+        echo "$USB_CHARGING" > "$IDEAPAD_USB_NODE" 2>/dev/null || true
+    fi
+fi
+
+# ---------------------------------------------------------
+# 6. Background Update Timer Throttling (systemd --user)
+# ---------------------------------------------------------
+if command -v systemctl >/dev/null 2>&1; then
+    if [[ "$PAUSE_UPDATE_TIMER" == "true" ]]; then
+        if systemctl --user is-active --quiet arch-update.timer 2>/dev/null; then
+            echo "Pausing arch-update.timer on battery..."
+            systemctl --user stop arch-update.timer 2>/dev/null || true
+        fi
+    else
+        if ! systemctl --user is-active --quiet arch-update.timer 2>/dev/null; then
+            echo "Resuming arch-update.timer on AC..."
+            systemctl --user start arch-update.timer 2>/dev/null || true
+        fi
     fi
 fi
 
