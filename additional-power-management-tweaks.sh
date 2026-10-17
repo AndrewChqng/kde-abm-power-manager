@@ -41,6 +41,8 @@
 #  10. System Color Scheme / Dark Mode (plasma-apply-colorscheme):
 #      - Switches to BreezeDark on Battery / Low Battery to maximize ABM backlight power savings
 #      - Saves and restores original color scheme when returning to AC
+#  11. Desktop Notifications (notify-send):
+#      - Dispatches rich KDE notifications detailing the exact power optimizations applied
 #
 # Usage:
 #   additional-power-management-tweaks.sh <ac|battery|low_battery|"low battery"> [output_name]
@@ -199,6 +201,9 @@ elif command -v qdbus >/dev/null 2>&1; then
     QDBUS_BIN="qdbus"
 fi
 
+# Track applied power optimizations for KDE desktop notification
+NOTIFY_CHANGES=()
+
 # ---------------------------------------------------------
 # 1. Display & GPU Pipeline Tweaks (kscreen-doctor)
 # ---------------------------------------------------------
@@ -219,6 +224,8 @@ if command -v kscreen-doctor >/dev/null 2>&1; then
     echo "  - EDR policy: ${EDR_POLICY}"
     echo "  - VRR policy: ${VRR_POLICY}"
     echo "  - Dimming: ${DIMMING}%"
+
+    NOTIFY_CHANGES+=("Display: ${REFRESH_TARGET} Hz, ABM ${ABM_LEVEL}, VRR ${VRR_POLICY}, ${DIMMING}% dimming")
 
     KSCREEN_ARGS=(
         "output.${OUTPUT}.abm.${ABM_LEVEL}"
@@ -280,11 +287,13 @@ if [[ -n "$QDBUS_BIN" ]]; then
     )
     if [[ "$ENABLE_COMPOSITOR_EFFECTS" == "true" ]]; then
         echo "Restoring KWin visual & animation effects (${HEAVY_EFFECTS[*]})..."
+        NOTIFY_CHANGES+=("KWin: Animations & compositor effects enabled")
         for effect in "${HEAVY_EFFECTS[@]}"; do
             "$QDBUS_BIN" org.kde.KWin /Effects org.kde.kwin.Effects.loadEffect "$effect" >/dev/null 2>&1 || true
         done
     else
         echo "Disabling heavy KWin visual & animation effects (${HEAVY_EFFECTS[*]})..."
+        NOTIFY_CHANGES+=("KWin: Heavy animations & effects disabled")
         for effect in "${HEAVY_EFFECTS[@]}"; do
             "$QDBUS_BIN" org.kde.KWin /Effects org.kde.kwin.Effects.unloadEffect "$effect" >/dev/null 2>&1 || true
         done
@@ -302,11 +311,13 @@ if [[ -n "$QDBUS_BIN" ]]; then
     )
     if [[ "$ENABLE_KDED_WATCHERS" == "true" ]]; then
         echo "Restoring KDED background watcher modules (${KDED_WATCHER_MODULES[*]})..."
+        NOTIFY_CHANGES+=("KDED: Background watchers loaded")
         for mod in "${KDED_WATCHER_MODULES[@]}"; do
             "$QDBUS_BIN" org.kde.kded6 /kded org.kde.kded6.loadModule "$mod" >/dev/null 2>&1 || true
         done
     else
         echo "Unloading KDED background watcher modules (${KDED_WATCHER_MODULES[*]})..."
+        NOTIFY_CHANGES+=("KDED: Background watchers unloaded")
         for mod in "${KDED_WATCHER_MODULES[@]}"; do
             "$QDBUS_BIN" org.kde.kded6 /kded org.kde.kded6.unloadModule "$mod" >/dev/null 2>&1 || true
         done
@@ -319,6 +330,7 @@ fi
 if command -v rfkill >/dev/null 2>&1; then
     if [[ "$BLUETOOTH_ACTION" == "unblock" ]]; then
         echo "Unblocking Bluetooth on AC..."
+        NOTIFY_CHANGES+=("Bluetooth: Unblocked")
         rfkill unblock bluetooth 2>/dev/null || true
     elif [[ "$BLUETOOTH_ACTION" == "auto_block" ]]; then
         # Check if any bluetooth devices are currently connected
@@ -331,8 +343,10 @@ if command -v rfkill >/dev/null 2>&1; then
 
         if [[ "$HAS_CONNECTED_DEVICE" == "true" ]]; then
             echo "Active Bluetooth device connected; keeping Bluetooth active."
+            NOTIFY_CHANGES+=("Bluetooth: Kept active (device connected)")
         else
             echo "No active Bluetooth devices connected; soft-blocking Bluetooth to save power..."
+            NOTIFY_CHANGES+=("Bluetooth: Soft-blocked (no devices)")
             rfkill block bluetooth 2>/dev/null || true
         fi
     fi
@@ -343,6 +357,7 @@ fi
 # ---------------------------------------------------------
 if [[ "$DISABLE_KBD_BACKLIGHT" == "true" && -n "$QDBUS_BIN" ]]; then
     echo "Turning off keyboard backlight on battery..."
+    NOTIFY_CHANGES+=("Keyboard Backlight: Turned off")
     "$QDBUS_BIN" org.kde.Solid.PowerManagement \
         /org/kde/Solid/PowerManagement/Actions/KeyboardBrightnessControl \
         org.kde.Solid.PowerManagement.Actions.KeyboardBrightnessControl.setKeyboardBrightness 0 >/dev/null 2>&1 || true
@@ -358,6 +373,11 @@ if [[ -w "$IDEAPAD_USB_NODE" ]]; then
         echo "Setting IdeaPad USB charging to ${USB_CHARGING}..."
         echo "$USB_CHARGING" > "$IDEAPAD_USB_NODE" 2>/dev/null || true
     fi
+    if [[ "$USB_CHARGING" == "0" ]]; then
+        NOTIFY_CHANGES+=("IdeaPad USB: Standby charging disabled")
+    elif [[ "$MODE" == "ac" ]]; then
+        NOTIFY_CHANGES+=("IdeaPad USB: Standby charging enabled")
+    fi
 fi
 
 # ---------------------------------------------------------
@@ -369,11 +389,13 @@ if command -v systemctl >/dev/null 2>&1; then
             echo "Pausing arch-update.timer on battery..."
             systemctl --user stop arch-update.timer 2>/dev/null || true
         fi
+        NOTIFY_CHANGES+=("Update Timer: arch-update paused")
     else
         if ! systemctl --user is-active --quiet arch-update.timer 2>/dev/null; then
             echo "Resuming arch-update.timer on AC..."
             systemctl --user start arch-update.timer 2>/dev/null || true
         fi
+        NOTIFY_CHANGES+=("Update Timer: arch-update active")
     fi
 
     LOW_BATTERY_STOP_SERVICES=(
@@ -389,6 +411,7 @@ if command -v systemctl >/dev/null 2>&1; then
                 systemctl --user stop "$svc" 2>/dev/null || true
             fi
         done
+        NOTIFY_CHANGES+=("Services: Boosters, KDE Connect & PSD paused")
     else
         for svc in "${LOW_BATTERY_STOP_SERVICES[@]}"; do
             if systemctl --user cat "$svc" >/dev/null 2>&1 && ! systemctl --user is-active --quiet "$svc" 2>/dev/null; then
@@ -396,6 +419,9 @@ if command -v systemctl >/dev/null 2>&1; then
                 systemctl --user start "$svc" 2>/dev/null || true
             fi
         done
+        if [[ "$MODE" == "ac" ]]; then
+            NOTIFY_CHANGES+=("Services: Boosters, KDE Connect & PSD active")
+        fi
     fi
 fi
 
@@ -412,6 +438,11 @@ if [[ -d "$USER_BG_SLICE" ]]; then
         echo "Reclaiming ${BG_RECLAIM} of cold pages from background.slice into ZRAM..."
         echo "$BG_RECLAIM" > "$USER_BG_SLICE/memory.reclaim" 2>/dev/null || true
     fi
+    if [[ "$BG_CPU_IDLE" == "1" ]]; then
+        NOTIFY_CHANGES+=("Cgroups: background.slice SCHED_IDLE & 512M swap cap")
+    elif [[ "$MODE" == "ac" ]]; then
+        NOTIFY_CHANGES+=("Cgroups: background.slice normal priority")
+    fi
 fi
 
 # ---------------------------------------------------------
@@ -420,6 +451,11 @@ fi
 if command -v pw-metadata >/dev/null 2>&1; then
     echo "Setting PipeWire clock.force-quantum to ${PIPEWIRE_FORCE_QUANTUM}..."
     pw-metadata -n settings 0 clock.force-quantum "${PIPEWIRE_FORCE_QUANTUM}" >/dev/null 2>&1 || true
+    if [[ "$PIPEWIRE_FORCE_QUANTUM" -gt 0 ]]; then
+        NOTIFY_CHANGES+=("Audio: PipeWire buffer forced to ${PIPEWIRE_FORCE_QUANTUM}")
+    elif [[ "$MODE" == "ac" ]]; then
+        NOTIFY_CHANGES+=("Audio: Dynamic low-latency buffer")
+    fi
 fi
 
 # ---------------------------------------------------------
@@ -441,6 +477,9 @@ if command -v plasma-apply-colorscheme >/dev/null 2>&1; then
             fi
             echo "Switching to dark color scheme (BreezeDark) to maximize ABM power savings..."
             plasma-apply-colorscheme BreezeDark >/dev/null 2>&1 || true
+            NOTIFY_CHANGES+=("Theme: Switched to BreezeDark for ABM")
+        else
+            NOTIFY_CHANGES+=("Theme: BreezeDark active")
         fi
     elif [[ "$COLOR_SCHEME_MODE" == "restore" ]]; then
         # Restore saved AC color scheme if present
@@ -450,9 +489,51 @@ if command -v plasma-apply-colorscheme >/dev/null 2>&1; then
             if [[ -n "$SAVED_SCHEME" && "$SAVED_SCHEME" != "$CURRENT_SCHEME" ]]; then
                 echo "Restoring AC color scheme (${SAVED_SCHEME})..."
                 plasma-apply-colorscheme "$SAVED_SCHEME" >/dev/null 2>&1 || true
+                NOTIFY_CHANGES+=("Theme: Restored AC theme (${SAVED_SCHEME})")
             fi
         fi
     fi
+fi
+
+# ---------------------------------------------------------
+# 11. KDE Desktop Notification (notify-send)
+# ---------------------------------------------------------
+if command -v notify-send >/dev/null 2>&1; then
+    case "$MODE" in
+        ac)
+            NOTIFY_TITLE="KDE Power Profile: AC"
+            NOTIFY_ICON="battery-charging"
+            NOTIFY_URGENCY="low"
+            ;;
+        battery)
+            NOTIFY_TITLE="KDE Power Profile: Battery"
+            NOTIFY_ICON="battery"
+            NOTIFY_URGENCY="normal"
+            ;;
+        low_battery|"low battery"|low-battery|low)
+            NOTIFY_TITLE="KDE Power Profile: Low Battery"
+            NOTIFY_ICON="battery-low"
+            NOTIFY_URGENCY="critical"
+            ;;
+    esac
+
+    NOTIFY_BODY=""
+    for item in "${NOTIFY_CHANGES[@]}"; do
+        if [[ -z "$NOTIFY_BODY" ]]; then
+            NOTIFY_BODY="• ${item}"
+        else
+            NOTIFY_BODY="${NOTIFY_BODY}
+• ${item}"
+        fi
+    done
+
+    notify-send \
+        --app-name="KDE Power Management" \
+        --icon="$NOTIFY_ICON" \
+        --urgency="$NOTIFY_URGENCY" \
+        --hint=string:desktop-entry:org.kde.powerdevil \
+        "$NOTIFY_TITLE" \
+        "$NOTIFY_BODY" >/dev/null 2>&1 || true
 fi
 
 echo "Power profile '${MODE}' successfully applied."

@@ -66,6 +66,10 @@ Disables shader-heavy rendering, spring physics, and multi-frame geometry transf
 - **Battery / Low Battery**: Automatically switches Plasma to `BreezeDark` (and triggers the FreeDesktop `prefer-dark` portal). If you were using a light theme on AC, your active scheme is saved to `~/.local/state/kde-power-management/ac-colorscheme`.
 - **AC**: Seamlessly restores your original AC color scheme.
 
+### 11. Desktop Notifications (`notify-send`)
+- Dispatches formatted KDE Plasma desktop notifications whenever a power state change occurs, summarizing the specific optimizations applied (display refresh rate & ABM, compositor effects, KDED modules, Bluetooth, cgroup priorities, audio buffers, and themes).
+- Configured with native icons (`battery-charging`, `battery`, `battery-low`) and appropriate urgency hints.
+
 ---
 
 ## Usage
