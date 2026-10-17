@@ -1,0 +1,10 @@
+# /etc/systemd/system/kde-power-vm-tune@.service
+# Polkit-authorized oneshot helper for /proc/sys/vm/* tunables and SMT hotplug
+# sysfs group ownership (since /proc/sys inodes do not support fchownat).
+
+[Unit]
+Description=KDE Power Manager Kernel VM & SMT Helper (%I)
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh -c 'if [ "%i" = "ac" ]; then echo on > /sys/devices/system/cpu/smt/control 2>/dev/null || true; sysctl -qw vm.dirty_writeback_centisecs=1500 vm.laptop_mode=0 || true; elif [ "%i" = "battery" ]; then echo on > /sys/devices/system/cpu/smt/control 2>/dev/null || true; sysctl -qw vm.dirty_writeback_centisecs=6000 vm.laptop_mode=5 || true; elif [ "%i" = "low_battery" ]; then sysctl -qw vm.dirty_writeback_centisecs=9000 vm.laptop_mode=5 vm.compact_memory=1 || true; echo off > /sys/devices/system/cpu/smt/control 2>/dev/null || true; fi; chgrp wheel /sys/devices/system/cpu/cpu*/cpufreq/energy_performance_preference /sys/devices/system/cpu/cpu*/cpufreq/scaling_max_freq /sys/devices/system/cpu/cpu*/cpufreq/boost 2>/dev/null || true; chmod 0664 /sys/devices/system/cpu/cpu*/cpufreq/energy_performance_preference /sys/devices/system/cpu/cpu*/cpufreq/scaling_max_freq /sys/devices/system/cpu/cpu*/cpufreq/boost 2>/dev/null || true'

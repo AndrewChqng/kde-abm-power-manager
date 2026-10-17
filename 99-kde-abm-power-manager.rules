@@ -1,0 +1,27 @@
+# /etc/udev/rules.d/99-kde-abm-power-manager.rules
+# Grants members of the 'wheel' group write access to hardware and kernel
+# power-saving interfaces so KDE Plasma's PowerDevil user script can adjust
+# them dynamically without root or sudo prompts.
+
+# 1. CPU Boost, SMT Control, and AMD P-State EPP / Frequency Caps
+#    Also runs on 'online' so re-enabled SMT sibling threads get group write access.
+SUBSYSTEM=="cpu", ACTION=="add|change|online", RUN+="/bin/sh -c 'chgrp wheel /sys/devices/system/cpu/cpufreq/boost /sys/devices/system/cpu/smt/control /sys/devices/system/cpu/cpu*/cpufreq/energy_performance_preference /sys/devices/system/cpu/cpu*/cpufreq/scaling_max_freq /sys/devices/system/cpu/cpu*/cpufreq/boost 2>/dev/null; chmod 0664 /sys/devices/system/cpu/cpufreq/boost /sys/devices/system/cpu/smt/control /sys/devices/system/cpu/cpu*/cpufreq/energy_performance_preference /sys/devices/system/cpu/cpu*/cpufreq/scaling_max_freq /sys/devices/system/cpu/cpu*/cpufreq/boost 2>/dev/null || true'"
+
+# 2. AMD Radeon iGPU Dynamic Power Management (DPM)
+SUBSYSTEM=="drm", KERNEL=="card*", ACTION=="add|change", RUN+="/bin/sh -c 'chgrp wheel /sys/class/drm/%k/device/power_dpm_force_performance_level /sys/class/drm/%k/device/power/control 2>/dev/null; chmod 0664 /sys/class/drm/%k/device/power_dpm_force_performance_level /sys/class/drm/%k/device/power/control 2>/dev/null || true'"
+
+# 3. PCI Runtime Power Management & PCIe ASPM Policy
+SUBSYSTEM=="pci", ACTION=="add|change", RUN+="/bin/sh -c 'chgrp wheel /sys%p/power/control /sys/module/pcie_aspm/parameters/policy 2>/dev/null; chmod 0664 /sys%p/power/control /sys/module/pcie_aspm/parameters/policy 2>/dev/null || true'"
+
+# 4. NVMe & USB Runtime Power Management
+SUBSYSTEM=="nvme", ACTION=="add|change", RUN+="/bin/sh -c 'chgrp wheel /sys%p/power/control 2>/dev/null; chmod 0664 /sys%p/power/control 2>/dev/null || true'"
+SUBSYSTEM=="usb", ACTION=="add|change", RUN+="/bin/sh -c 'chgrp wheel /sys%p/power/control 2>/dev/null; chmod 0664 /sys%p/power/control 2>/dev/null || true'"
+
+# 5. Intel/AMD HDA Audio Codec Power Save
+SUBSYSTEM=="sound", ACTION=="add|change", RUN+="/bin/sh -c 'chgrp wheel /sys/module/snd_hda_intel/parameters/power_save /sys/module/snd_hda_intel/parameters/power_save_controller 2>/dev/null; chmod 0664 /sys/module/snd_hda_intel/parameters/power_save /sys/module/snd_hda_intel/parameters/power_save_controller 2>/dev/null || true'"
+
+# 6. Lenovo IdeaPad ACPI & ACPI Platform Profile
+SUBSYSTEM=="platform", KERNEL=="VPC2004:*", ACTION=="add|change", RUN+="/bin/sh -c 'chgrp wheel /sys%p/usb_charging /sys%p/camera_power /sys%p/conservation_mode /sys/firmware/acpi/platform_profile 2>/dev/null; chmod 0664 /sys%p/usb_charging /sys%p/camera_power /sys%p/conservation_mode /sys/firmware/acpi/platform_profile 2>/dev/null || true'"
+
+# 7. Kernel VM Writeback, Laptop Mode, Memory Compaction, THP & Root Cgroup Reclaim
+SUBSYSTEM=="power_supply", ACTION=="add|change", RUN+="/bin/sh -c 'chgrp wheel /proc/sys/vm/dirty_writeback_centisecs /proc/sys/vm/laptop_mode /proc/sys/vm/compact_memory /sys/kernel/mm/transparent_hugepage/enabled /sys/kernel/mm/transparent_hugepage/defrag /sys/fs/cgroup/memory.reclaim /sys/firmware/acpi/platform_profile /sys/module/pcie_aspm/parameters/policy /sys/module/snd_hda_intel/parameters/power_save /sys/module/snd_hda_intel/parameters/power_save_controller 2>/dev/null; chmod 0664 /proc/sys/vm/dirty_writeback_centisecs /proc/sys/vm/laptop_mode /sys/kernel/mm/transparent_hugepage/enabled /sys/kernel/mm/transparent_hugepage/defrag /sys/firmware/acpi/platform_profile /sys/module/pcie_aspm/parameters/policy /sys/module/snd_hda_intel/parameters/power_save /sys/module/snd_hda_intel/parameters/power_save_controller 2>/dev/null; chmod 0220 /proc/sys/vm/compact_memory /sys/fs/cgroup/memory.reclaim 2>/dev/null || true'"

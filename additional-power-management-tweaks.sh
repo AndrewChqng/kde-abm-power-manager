@@ -27,21 +27,33 @@
 #   6. Lenovo IdeaPad USB Standby Charging:
 #      - Disabled (0) on Low Battery to prevent peripherals/cables from siphoning reserve power
 #      - Enabled (1) on AC / Battery
-#   7. Background System Update Timers, Boosters & KDE Connect (systemd --user):
+#   7. Background System Update Timers, Boosters, KDE Connect & System Services:
 #      - arch-update.timer stopped on Battery / Low Battery, started on AC
 #      - psd-resync.timer, plasma-foreground-booster.service, dmemcg-booster-user.service &
 #        app-org.kde.kdeconnect.daemon@autostart.service stopped on Low Battery,
 #        started on AC / Battery
-#   8. User Cgroup v2 Memory, Swap & Scheduling Tweaks (background.slice):
-#      - cpu.idle=1 (SCHED_IDLE) and io.prio.class=idle on Battery / Low Battery (0 / no-change on AC)
-#      - memory.swap.high=512M & 64M cold-page ZRAM reclaim on Battery / Low Battery (max on AC)
-#   9. PipeWire Audio Buffer Quantum (pw-metadata):
-#      - Forced to 2048 samples on Low Battery to reduce audio CPU interrupts
-#      - Reset to 0 (dynamic low-latency) on AC / Battery
+#      - cups.service, avahi-daemon.service & libvirtd.service paused on Low Battery
+#        (via Polkit rule), restored on AC / Battery
+#   8. User & Root Cgroup v2 Memory, Swap, Scheduling & THP / Compaction Tweaks:
+#      - background.slice cpu.idle=1 (SCHED_IDLE) and io.prio.class=idle on Battery / Low Battery
+#      - background.slice memory.swap.high=512M & 64M cold-page ZRAM reclaim on Battery / Low Battery
+#      - Root cgroup memory.reclaim (128M on Battery, 256M on Low Battery)
+#      - Transparent Huge Pages (THP): always on AC, madvise on Battery / Low Battery
+#      - Kernel VM writeback & laptop_mode: 15s / 0 on AC, 60s / 5 on Battery, 90s / 5 + RAM compaction on Low Battery
+#   9. PipeWire Audio Buffer Quantum & HDA Codec Power Save:
+#      - PipeWire clock.force-quantum: 2048 on Low Battery, 0 (dynamic) on AC / Battery
+#      - snd_hda_intel power_save: 0 on AC, 1s auto-suspend on Battery / Low Battery
 #  10. System Color Scheme / Dark Mode (plasma-apply-colorscheme):
 #      - Switches to BreezeDark on Battery / Low Battery to maximize ABM backlight power savings
 #      - Saves and restores original color scheme when returning to AC
-#  11. Desktop Notifications (notify-send):
+#  11. CPU Boost, AMD P-State EPP, SMT, Frequency Cap, ACPI Platform Profile, iGPU DPM & PCIe ASPM:
+#      - CPU boost: 1 on AC, 0 on Battery / Low Battery
+#      - AMD P-State EPP: balance_performance on AC, balance_power on Battery, power on Low Battery
+#      - SMT & CPU Max Freq: SMT on & max freq on AC / Battery, SMT off & 2.0 GHz cap on Low Battery
+#      - ACPI platform_profile: balanced on AC, low-power on Battery / Low Battery
+#      - AMD Radeon iGPU DPM: auto on AC, low on Battery / Low Battery
+#      - PCIe ASPM & PCI Runtime PM: default / on for AC, powersave / auto for Battery, powersupersave / auto for Low Battery
+#  12. Desktop Notifications (notify-send):
 #      - Dispatches rich KDE notifications detailing the exact power optimizations applied
 #
 # Usage:
@@ -56,46 +68,43 @@ Usage: $(basename "$0") <mode> [output]
 Modes:
   ac                        AC power profile:
                               - Refresh rate (all displays): maximum for current resolution
-                              - ABM: 0 (disabled)
-                              - Color power tradeoff: preferAccuracy
-                              - Max bits per color (maxbpc): automatic
-                              - EDR policy: always
-                              - VRR policy: automatic
-                              - Display dimming: 100%
+                              - ABM: 0 (disabled), Color: preferAccuracy, maxbpc: automatic, EDR: always, VRR: automatic, Dimming: 100%
+                              - CPU: boost=1, EPP=balance_performance, SMT=on, max frequency=unrestricted
+                              - Platform & GPU: ACPI profile=balanced, Radeon iGPU DPM=auto
+                              - PCIe ASPM & Runtime PM: policy=default, PCI power/control=on
+                              - Audio: HDA power_save=0, PipeWire force-quantum=0 (dynamic)
+                              - Kernel VM & THP: writeback=1500cs, laptop_mode=0, THP=always
                               - KWin visual & animation effects: enabled
                               - KDED background watchers: enabled
-                              - Bluetooth: unblocked
-                              - IdeaPad USB charging: enabled
-                              - arch-update.timer: active
-                              - Foreground boosters, KDE Connect & psd-resync.timer: active
+                              - Bluetooth: unblocked, IdeaPad USB charging: enabled
+                              - Timers & Services: arch-update, boosters, KDE Connect, PSD & system services active
                               - background.slice cgroup: normal CPU/IO & swap=max
-                              - PipeWire force-quantum: 0 (dynamic)
                               - Color scheme: restored to AC preference
 
   battery                   Standard battery power profile:
                               - Refresh rate (all displays): lowest for current resolution
-                              - ABM: 4 (maximum power saving)
-                              - Color power tradeoff: preferEfficiency
-                              - Max bits per color (maxbpc): 8
-                              - EDR policy: never
-                              - VRR policy: always
-                              - Display dimming: 100%
+                              - ABM: 4, Color: preferEfficiency, maxbpc: 8, EDR: never, VRR: always, Dimming: 100%
+                              - CPU: boost=0, EPP=balance_power, SMT=on, max frequency=unrestricted
+                              - Platform & GPU: ACPI profile=low-power, Radeon iGPU DPM=low
+                              - PCIe ASPM & Runtime PM: policy=powersave, PCI/NVMe/USB power/control=auto
+                              - Audio: HDA power_save=1, PipeWire force-quantum=0 (dynamic)
+                              - Kernel VM & THP: writeback=6000cs (60s), laptop_mode=5, THP=madvise, 128M global ZRAM reclaim
                               - KWin visual & animation effects: disabled (instant rendering)
                               - KDED background watchers: unloaded
-                              - Bluetooth: blocked if no device is connected
-                              - Keyboard backlight: turned off
-                              - arch-update.timer: paused
-                              - Foreground boosters, KDE Connect & psd-resync.timer: active
+                              - Bluetooth: blocked if no device is connected, Keyboard backlight: off
+                              - Timers & Services: arch-update paused; boosters, KDE Connect & PSD active
                               - background.slice cgroup: SCHED_IDLE CPU/IO, 512M swap cap & 64M ZRAM reclaim
-                              - PipeWire force-quantum: 0 (dynamic)
                               - Color scheme: switched to BreezeDark for ABM
 
   low_battery, "low battery", low-battery, low
                             Aggressive battery saving profile:
                               - All battery optimizations above
                               - Display dimming: 80%
+                              - CPU: boost=0, EPP=power, SMT=off, max frequency capped at 2.0 GHz
+                              - PCIe ASPM: policy=powersupersave
+                              - Kernel VM: writeback=9000cs (90s), 256M global ZRAM reclaim & physical RAM compaction
                               - IdeaPad USB standby charging: disabled
-                              - Foreground boosters, KDE Connect & psd-resync.timer: stopped
+                              - User & System Services: boosters, KDE Connect, PSD, CUPS, Avahi & Libvirt stopped
                               - PipeWire force-quantum: 2048 (large power-saving buffer)
 
 Arguments:
@@ -129,12 +138,28 @@ case "$MODE" in
         USB_CHARGING=1
         PAUSE_UPDATE_TIMER=false
         PAUSE_FOREGROUND_BOOSTERS=false
+        PAUSE_SYSTEM_SERVICES=false
         BG_CPU_IDLE=0
         BG_IO_PRIO="no-change"
         BG_SWAP_HIGH="max"
         BG_RECLAIM=""
+        ROOT_CGROUP_RECLAIM=""
+        THP_ENABLED="always"
+        THP_DEFRAG="defer+madvise"
+        VM_WRITEBACK_CENTISECS=1500
+        VM_LAPTOP_MODE=0
+        COMPACT_MEMORY=false
         PIPEWIRE_FORCE_QUANTUM=0
+        AUDIO_POWER_SAVE=0
         COLOR_SCHEME_MODE="restore"
+        CPU_BOOST=1
+        CPU_EPP="balance_performance"
+        CPU_SMT="on"
+        CPU_MAX_FREQ_KHZ="max"
+        PLATFORM_PROFILE="balanced"
+        GPU_DPM_LEVEL="auto"
+        PCIE_ASPM_POLICY="default"
+        PCI_RUNTIME_PM="on"
         ;;
     battery)
         REFRESH_TARGET="min"
@@ -151,12 +176,28 @@ case "$MODE" in
         USB_CHARGING=1
         PAUSE_UPDATE_TIMER=true
         PAUSE_FOREGROUND_BOOSTERS=false
+        PAUSE_SYSTEM_SERVICES=false
         BG_CPU_IDLE=1
         BG_IO_PRIO="idle"
         BG_SWAP_HIGH="512M"
         BG_RECLAIM="64M"
+        ROOT_CGROUP_RECLAIM="128M"
+        THP_ENABLED="madvise"
+        THP_DEFRAG="madvise"
+        VM_WRITEBACK_CENTISECS=6000
+        VM_LAPTOP_MODE=5
+        COMPACT_MEMORY=false
         PIPEWIRE_FORCE_QUANTUM=0
+        AUDIO_POWER_SAVE=1
         COLOR_SCHEME_MODE="dark"
+        CPU_BOOST=0
+        CPU_EPP="balance_power"
+        CPU_SMT="on"
+        CPU_MAX_FREQ_KHZ="max"
+        PLATFORM_PROFILE="low-power"
+        GPU_DPM_LEVEL="low"
+        PCIE_ASPM_POLICY="powersave"
+        PCI_RUNTIME_PM="auto"
         ;;
     low_battery|"low battery"|low-battery|low)
         REFRESH_TARGET="min"
@@ -173,12 +214,28 @@ case "$MODE" in
         USB_CHARGING=0
         PAUSE_UPDATE_TIMER=true
         PAUSE_FOREGROUND_BOOSTERS=true
+        PAUSE_SYSTEM_SERVICES=true
         BG_CPU_IDLE=1
         BG_IO_PRIO="idle"
         BG_SWAP_HIGH="512M"
         BG_RECLAIM="64M"
+        ROOT_CGROUP_RECLAIM="256M"
+        THP_ENABLED="madvise"
+        THP_DEFRAG="madvise"
+        VM_WRITEBACK_CENTISECS=9000
+        VM_LAPTOP_MODE=5
+        COMPACT_MEMORY=true
         PIPEWIRE_FORCE_QUANTUM=2048
+        AUDIO_POWER_SAVE=1
         COLOR_SCHEME_MODE="dark"
+        CPU_BOOST=0
+        CPU_EPP="power"
+        CPU_SMT="off"
+        CPU_MAX_FREQ_KHZ="2000000"
+        PLATFORM_PROFILE="low-power"
+        GPU_DPM_LEVEL="low"
+        PCIE_ASPM_POLICY="powersupersave"
+        PCI_RUNTIME_PM="auto"
         ;;
     -h|--help|help)
         usage
@@ -381,7 +438,7 @@ if [[ -w "$IDEAPAD_USB_NODE" ]]; then
 fi
 
 # ---------------------------------------------------------
-# 7. Background Update Timers, Boosters & KDE Connect (systemd --user)
+# 7. Background Update Timers, Boosters, KDE Connect & System Daemons
 # ---------------------------------------------------------
 if command -v systemctl >/dev/null 2>&1; then
     if [[ "$PAUSE_UPDATE_TIMER" == "true" ]]; then
@@ -411,7 +468,7 @@ if command -v systemctl >/dev/null 2>&1; then
                 systemctl --user stop "$svc" 2>/dev/null || true
             fi
         done
-        NOTIFY_CHANGES+=("Services: Boosters, KDE Connect & PSD paused")
+        NOTIFY_CHANGES+=("User Services: Boosters, KDE Connect & PSD paused")
     else
         for svc in "${LOW_BATTERY_STOP_SERVICES[@]}"; do
             if systemctl --user cat "$svc" >/dev/null 2>&1 && ! systemctl --user is-active --quiet "$svc" 2>/dev/null; then
@@ -420,13 +477,44 @@ if command -v systemctl >/dev/null 2>&1; then
             fi
         done
         if [[ "$MODE" == "ac" ]]; then
-            NOTIFY_CHANGES+=("Services: Boosters, KDE Connect & PSD active")
+            NOTIFY_CHANGES+=("User Services: Boosters, KDE Connect & PSD active")
+        fi
+    fi
+
+    # System-level non-essential daemons (authorized passwordlessly via Polkit rule)
+    SYS_SERVICES_STATE_FILE="${XDG_STATE_HOME:-$HOME/.local/state}/kde-power-management/active-system-services"
+    LOW_BATTERY_SYS_SERVICES=(
+        "cups.service"
+        "avahi-daemon.service"
+        "libvirtd.service"
+    )
+    if [[ "$PAUSE_SYSTEM_SERVICES" == "true" ]]; then
+        mkdir -p "$(dirname "$SYS_SERVICES_STATE_FILE")"
+        : > "$SYS_SERVICES_STATE_FILE"
+        for sys_svc in "${LOW_BATTERY_SYS_SERVICES[@]}"; do
+            if systemctl is-active --quiet "$sys_svc" 2>/dev/null; then
+                echo "$sys_svc" >> "$SYS_SERVICES_STATE_FILE"
+                echo "Stopping system service ${sys_svc} on low battery..."
+                systemctl --no-ask-password stop "$sys_svc" 2>/dev/null || true
+            fi
+        done
+        NOTIFY_CHANGES+=("System Daemons: CUPS, Avahi & Libvirt paused")
+    else
+        if [[ -f "$SYS_SERVICES_STATE_FILE" ]]; then
+            while IFS= read -r sys_svc; do
+                [[ -z "$sys_svc" ]] && continue
+                if ! systemctl is-active --quiet "$sys_svc" 2>/dev/null; then
+                    echo "Restoring system service ${sys_svc}..."
+                    systemctl --no-ask-password start "$sys_svc" 2>/dev/null || true
+                fi
+            done < "$SYS_SERVICES_STATE_FILE"
+            rm -f "$SYS_SERVICES_STATE_FILE"
         fi
     fi
 fi
 
 # ---------------------------------------------------------
-# 8. User Cgroup v2 Memory, Swap & Scheduling Tweaks (background.slice)
+# 8. User & Root Cgroup v2 Memory, Swap, THP & Kernel VM Tweaks
 # ---------------------------------------------------------
 USER_BG_SLICE="/sys/fs/cgroup/user.slice/user-$(id -u).slice/user@$(id -u).service/background.slice"
 if [[ -d "$USER_BG_SLICE" ]]; then
@@ -438,24 +526,65 @@ if [[ -d "$USER_BG_SLICE" ]]; then
         echo "Reclaiming ${BG_RECLAIM} of cold pages from background.slice into ZRAM..."
         echo "$BG_RECLAIM" > "$USER_BG_SLICE/memory.reclaim" 2>/dev/null || true
     fi
-    if [[ "$BG_CPU_IDLE" == "1" ]]; then
-        NOTIFY_CHANGES+=("Cgroups: background.slice SCHED_IDLE & 512M swap cap")
-    elif [[ "$MODE" == "ac" ]]; then
-        NOTIFY_CHANGES+=("Cgroups: background.slice normal priority")
+fi
+
+# Root Cgroup v2 Global Cold-Page Reclaim (writable via udev rule)
+if [[ -n "$ROOT_CGROUP_RECLAIM" && -w /sys/fs/cgroup/memory.reclaim ]]; then
+    echo "Reclaiming ${ROOT_CGROUP_RECLAIM} of cold pages across root cgroup into ZRAM..."
+    echo "$ROOT_CGROUP_RECLAIM" > /sys/fs/cgroup/memory.reclaim 2>/dev/null || true
+fi
+
+# Transparent Huge Pages (THP) mode & defrag (writable via udev rule)
+if [[ -w /sys/kernel/mm/transparent_hugepage/enabled ]]; then
+    echo "Setting Transparent Huge Pages (THP) to ${THP_ENABLED} (defrag=${THP_DEFRAG})..."
+    echo "$THP_ENABLED" > /sys/kernel/mm/transparent_hugepage/enabled 2>/dev/null || true
+fi
+if [[ -w /sys/kernel/mm/transparent_hugepage/defrag ]]; then
+    echo "$THP_DEFRAG" > /sys/kernel/mm/transparent_hugepage/defrag 2>/dev/null || true
+fi
+
+# Kernel VM Writeback, Laptop Mode & SMT Helper (via Polkit-authorized systemd unit or direct procfs)
+VM_HELPER_PROFILE="ac"
+[[ "$MODE" == "battery" ]] && VM_HELPER_PROFILE="battery"
+[[ "$MODE" != "ac" && "$MODE" != "battery" ]] && VM_HELPER_PROFILE="low_battery"
+
+if command -v systemctl >/dev/null 2>&1 && systemctl cat "kde-power-vm-tune@${VM_HELPER_PROFILE}.service" >/dev/null 2>&1; then
+    echo "Applying kernel VM writeback (${VM_WRITEBACK_CENTISECS}cs), laptop_mode (${VM_LAPTOP_MODE}) & SMT (${CPU_SMT})..."
+    systemctl --no-ask-password start "kde-power-vm-tune@${VM_HELPER_PROFILE}.service" 2>/dev/null || true
+else
+    [[ -w /proc/sys/vm/dirty_writeback_centisecs ]] && echo "$VM_WRITEBACK_CENTISECS" > /proc/sys/vm/dirty_writeback_centisecs 2>/dev/null || true
+    [[ -w /proc/sys/vm/laptop_mode ]] && echo "$VM_LAPTOP_MODE" > /proc/sys/vm/laptop_mode 2>/dev/null || true
+    if [[ "$COMPACT_MEMORY" == "true" && -w /proc/sys/vm/compact_memory ]]; then
+        echo 1 > /proc/sys/vm/compact_memory 2>/dev/null || true
     fi
 fi
 
+if [[ "$BG_CPU_IDLE" == "1" ]]; then
+    NOTIFY_CHANGES+=("Memory & VM: THP=${THP_ENABLED}, writeback=$((VM_WRITEBACK_CENTISECS / 100))s, ZRAM reclaim (${ROOT_CGROUP_RECLAIM})")
+elif [[ "$MODE" == "ac" ]]; then
+    NOTIFY_CHANGES+=("Memory & VM: THP=${THP_ENABLED}, writeback=15s, normal cgroups")
+fi
+
 # ---------------------------------------------------------
-# 9. PipeWire Audio Buffer Quantum (Low Battery only)
+# 9. PipeWire Buffer Quantum & HDA Audio Codec Power Save
 # ---------------------------------------------------------
 if command -v pw-metadata >/dev/null 2>&1; then
     echo "Setting PipeWire clock.force-quantum to ${PIPEWIRE_FORCE_QUANTUM}..."
     pw-metadata -n settings 0 clock.force-quantum "${PIPEWIRE_FORCE_QUANTUM}" >/dev/null 2>&1 || true
-    if [[ "$PIPEWIRE_FORCE_QUANTUM" -gt 0 ]]; then
-        NOTIFY_CHANGES+=("Audio: PipeWire buffer forced to ${PIPEWIRE_FORCE_QUANTUM}")
-    elif [[ "$MODE" == "ac" ]]; then
-        NOTIFY_CHANGES+=("Audio: Dynamic low-latency buffer")
-    fi
+fi
+
+HDA_POWER_SAVE_NODE="/sys/module/snd_hda_intel/parameters/power_save"
+if [[ -w "$HDA_POWER_SAVE_NODE" ]]; then
+    echo "Setting snd_hda_intel power_save to ${AUDIO_POWER_SAVE}..."
+    echo "$AUDIO_POWER_SAVE" > "$HDA_POWER_SAVE_NODE" 2>/dev/null || true
+fi
+
+if [[ "$PIPEWIRE_FORCE_QUANTUM" -gt 0 ]]; then
+    NOTIFY_CHANGES+=("Audio: PipeWire ${PIPEWIRE_FORCE_QUANTUM} quantum, HDA power_save=${AUDIO_POWER_SAVE}")
+elif [[ "$AUDIO_POWER_SAVE" == "1" ]]; then
+    NOTIFY_CHANGES+=("Audio: HDA codec 1s power-save active")
+elif [[ "$MODE" == "ac" ]]; then
+    NOTIFY_CHANGES+=("Audio: Low-latency PipeWire & HDA always-on")
 fi
 
 # ---------------------------------------------------------
@@ -496,7 +625,80 @@ if command -v plasma-apply-colorscheme >/dev/null 2>&1; then
 fi
 
 # ---------------------------------------------------------
-# 11. KDE Desktop Notification (notify-send)
+# 11. CPU Boost, AMD P-State EPP, SMT, ACPI Profile, GPU DPM & PCIe ASPM
+# ---------------------------------------------------------
+# 11a. SMT Control (if writable directly via udev rule)
+if [[ -w /sys/devices/system/cpu/smt/control ]]; then
+    CURRENT_SMT=$(cat /sys/devices/system/cpu/smt/control 2>/dev/null || true)
+    if [[ "$CURRENT_SMT" != "$CPU_SMT" ]]; then
+        echo "Setting CPU SMT control to ${CPU_SMT}..."
+        echo "$CPU_SMT" > /sys/devices/system/cpu/smt/control 2>/dev/null || true
+    fi
+fi
+
+# 11b. CPU Core Performance Boost
+if [[ -w /sys/devices/system/cpu/cpufreq/boost ]]; then
+    echo "Setting CPU boost to ${CPU_BOOST}..."
+    echo "$CPU_BOOST" > /sys/devices/system/cpu/cpufreq/boost 2>/dev/null || true
+fi
+
+# 11c. AMD P-State Energy Performance Preference (EPP) & Frequency Cap
+HW_MAX_FREQ=$(cat /sys/devices/system/cpu/cpu0/cpufreq/amd_pstate_max_freq 2>/dev/null \
+    || cat /sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_max_freq 2>/dev/null \
+    || echo "4547946")
+TARGET_FREQ_KHZ="$HW_MAX_FREQ"
+if [[ "$CPU_MAX_FREQ_KHZ" != "max" ]]; then
+    TARGET_FREQ_KHZ="$CPU_MAX_FREQ_KHZ"
+fi
+
+echo "Setting CPU EPP=${CPU_EPP} and scaling_max_freq=${TARGET_FREQ_KHZ} kHz..."
+for cpufreq_dir in /sys/devices/system/cpu/cpu[0-9]*/cpufreq; do
+    [[ ! -d "$cpufreq_dir" ]] && continue
+    [[ -w "$cpufreq_dir/energy_performance_preference" ]] && echo "$CPU_EPP" > "$cpufreq_dir/energy_performance_preference" 2>/dev/null || true
+    [[ -w "$cpufreq_dir/scaling_max_freq" ]] && echo "$TARGET_FREQ_KHZ" > "$cpufreq_dir/scaling_max_freq" 2>/dev/null || true
+done
+
+if [[ "$CPU_MAX_FREQ_KHZ" == "max" ]]; then
+    NOTIFY_CHANGES+=("CPU: boost=${CPU_BOOST}, EPP=${CPU_EPP}, SMT=${CPU_SMT}")
+else
+    NOTIFY_CHANGES+=("CPU: boost=${CPU_BOOST}, EPP=${CPU_EPP}, SMT=${CPU_SMT}, cap=$((TARGET_FREQ_KHZ / 1000))MHz")
+fi
+
+# 11d. ACPI Platform Profile
+if [[ -w /sys/firmware/acpi/platform_profile ]]; then
+    echo "Setting ACPI platform_profile to ${PLATFORM_PROFILE}..."
+    echo "$PLATFORM_PROFILE" > /sys/firmware/acpi/platform_profile 2>/dev/null || true
+fi
+
+# 11e. AMD Radeon iGPU Dynamic Power Management (DPM)
+for dpm_node in /sys/class/drm/card[0-9]*/device/power_dpm_force_performance_level; do
+    if [[ -w "$dpm_node" ]]; then
+        echo "Setting Radeon iGPU DPM (${dpm_node}) to ${GPU_DPM_LEVEL}..."
+        echo "$GPU_DPM_LEVEL" > "$dpm_node" 2>/dev/null || true
+    fi
+done
+
+# 11f. PCIe ASPM Policy & PCI / NVMe / USB Runtime PM
+if [[ -w /sys/module/pcie_aspm/parameters/policy ]]; then
+    echo "Setting PCIe ASPM policy to ${PCIE_ASPM_POLICY}..."
+    echo "$PCIE_ASPM_POLICY" > /sys/module/pcie_aspm/parameters/policy 2>/dev/null || true
+fi
+
+echo "Setting PCI runtime PM power/control to ${PCI_RUNTIME_PM}..."
+for pci_pm in /sys/bus/pci/devices/*/power/control; do
+    [[ -w "$pci_pm" ]] && echo "$PCI_RUNTIME_PM" > "$pci_pm" 2>/dev/null || true
+done
+
+if [[ "$PCI_RUNTIME_PM" == "auto" ]]; then
+    for dev_pm in /sys/class/nvme/nvme*/power/control /sys/bus/usb/devices/*/power/control; do
+        [[ -w "$dev_pm" ]] && echo "auto" > "$dev_pm" 2>/dev/null || true
+    done
+fi
+
+NOTIFY_CHANGES+=("Hardware: ACPI=${PLATFORM_PROFILE}, GPU DPM=${GPU_DPM_LEVEL}, ASPM=${PCIE_ASPM_POLICY}, PCI PM=${PCI_RUNTIME_PM}")
+
+# ---------------------------------------------------------
+# 12. KDE Desktop Notification (notify-send)
 # ---------------------------------------------------------
 if command -v notify-send >/dev/null 2>&1; then
     case "$MODE" in

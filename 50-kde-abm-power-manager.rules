@@ -1,0 +1,19 @@
+// /etc/polkit-1/rules.d/50-kde-abm-power-manager.rules
+// Allows members of the 'wheel' group to start/stop non-essential background
+// system services (CUPS, Avahi, Libvirt) and invoke the KDE Power Manager
+// VM/SMT helper unit from KDE PowerDevil scripts without password prompts.
+
+polkit.addRule(function(action, subject) {
+    if (action.id == "org.freedesktop.systemd1.manage-units" &&
+        subject.isInGroup("wheel")) {
+        var unit = action.lookup("unit");
+        if (unit == "cups.service" ||
+            unit == "avahi-daemon.service" ||
+            unit == "libvirtd.service" ||
+            unit == "kde-power-vm-tune@ac.service" ||
+            unit == "kde-power-vm-tune@battery.service" ||
+            unit == "kde-power-vm-tune@low_battery.service") {
+            return polkit.Result.YES;
+        }
+    }
+});
