@@ -7,7 +7,7 @@
 #      - Refresh Rate (all active displays): max for current resolution on AC,
 #        lowest for current resolution on Battery / Low Battery
 #      - Adaptive Backlight Modulation (ABM): 0 on AC, 4 on Battery / Low Battery
-#      - Color Power Tradeoff: preferAccuracy on AC, preferEfficiency on Battery / Low Battery
+#      - Color Power Tradeoff: preferEfficiency across all profiles (bypasses GPU compositor blending for direct scanout/MPO performance)
 #      - Color Bit Depth (maxbpc): automatic on AC, 8 on Battery / Low Battery
 #      - EDR Policy: always on AC, never on Battery / Low Battery
 #      - Adaptive Sync / VRR Policy: automatic on AC, always on Battery / Low Battery
@@ -68,7 +68,7 @@ Usage: $(basename "$0") <mode> [output]
 Modes:
   ac                        AC power profile:
                               - Refresh rate (all displays): maximum for current resolution
-                              - ABM: 0 (disabled), Color: preferAccuracy, maxbpc: automatic, EDR: always, VRR: automatic, Dimming: 100%
+                              - ABM: 0 (disabled), Color: preferEfficiency, maxbpc: automatic, EDR: always, VRR: automatic, Dimming: 100%
                               - CPU: boost=1, EPP=balance_performance, SMT=on, max frequency=unrestricted
                               - Platform & GPU: ACPI profile=balanced, Radeon iGPU DPM=auto
                               - PCIe ASPM & Runtime PM: policy=default, PCI power/control=on
@@ -126,7 +126,7 @@ case "$MODE" in
     ac)
         REFRESH_TARGET="max"
         ABM_LEVEL=0
-        COLOR_POWER="preferAccuracy"
+        COLOR_POWER="preferEfficiency"
         MAX_BPC="automatic"
         EDR_POLICY="always"
         VRR_POLICY="automatic"
