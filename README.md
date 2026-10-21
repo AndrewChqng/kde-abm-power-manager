@@ -231,6 +231,11 @@ qdbus6 org.kde.Solid.PowerManagement /org/kde/Solid/PowerManagement org.kde.Soli
 ./additional-power-management-tweaks.sh ac
 ```
 
+The low-battery profile also accepts `low_battery`, `low-battery`, `low battery`, and
+`low`. The profile assignments in `additional-power-management-tweaks.sh` are the
+runtime source of truth for the AC, Battery, and Low Battery tables above; update
+those assignments and this documentation together when changing a power policy.
+
 ---
 
 ## Compatibility
