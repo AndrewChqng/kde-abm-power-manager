@@ -6,6 +6,7 @@
 #   1. Display & GPU Pipeline (via kscreen-doctor):
 #      - Refresh Rate (all active displays): max for current resolution on AC,
 #        lowest for current resolution on Battery / Low Battery
+#        (prompts via KDE kdialog popup when >1 display is connected)
 #      - Adaptive Backlight Modulation (ABM): 0 on AC, 4 on Battery / Low Battery
 #      - Color Power Tradeoff: preferEfficiency across all profiles (bypasses GPU compositor blending for direct scanout/MPO performance)
 #      - Color Bit Depth (maxbpc): automatic on AC, 8 on Battery / Low Battery
@@ -282,8 +283,6 @@ if command -v kscreen-doctor >/dev/null 2>&1; then
     echo "  - VRR policy: ${VRR_POLICY}"
     echo "  - Dimming: ${DIMMING}%"
 
-    NOTIFY_CHANGES+=("Display: ${REFRESH_TARGET} Hz, ABM ${ABM_LEVEL}, VRR ${VRR_POLICY}, ${DIMMING}% dimming")
-
     KSCREEN_ARGS=(
         "output.${OUTPUT}.abm.${ABM_LEVEL}"
         "output.${OUTPUT}.colorPowerTradeoff.${COLOR_POWER}"
@@ -295,16 +294,9 @@ if command -v kscreen-doctor >/dev/null 2>&1; then
 
     # Select max (AC) or min (Battery/Low Battery) refresh rate per active display
     # while preserving each display's current resolution.
+    REFRESH_STATUS_NOTE="${REFRESH_TARGET} Hz"
     if command -v jq >/dev/null 2>&1; then
-        while IFS=$'\t' read -r DISP_NAME DISP_RES MODE_ID MODE_HZ; do
-            [[ -z "$DISP_NAME" || -z "$MODE_ID" ]] && continue
-            if [[ -n "$EXPLICIT_OUTPUT" && "$DISP_NAME" != "$EXPLICIT_OUTPUT" ]]; then
-                continue
-            fi
-            printf "  - Refresh rate (%s @ %s): %s (%.2f Hz, mode %s)\n" \
-                "$DISP_NAME" "$DISP_RES" "$REFRESH_TARGET" "$MODE_HZ" "$MODE_ID"
-            KSCREEN_ARGS+=("output.${DISP_NAME}.mode.${MODE_ID}")
-        done < <(
+        mapfile -t DISPLAY_MODE_LINES < <(
             kscreen-doctor -j 2>/dev/null | jq -r --arg target "$REFRESH_TARGET" '
                 .outputs[]
                 | select(.connected == true and .enabled == true and .currentModeId != null)
@@ -312,10 +304,57 @@ if command -v kscreen-doctor >/dev/null 2>&1; then
                 | ($out.modes[] | select(.id == $out.currentModeId)) as $cur
                 | ($out.modes | map(select(.size.width == $cur.size.width and .size.height == $cur.size.height))) as $same_res
                 | (if $target == "max" then ($same_res | max_by(.refreshRate)) else ($same_res | min_by(.refreshRate)) end) as $chosen
-                | "\($out.name)\t\($cur.size.width)x\($cur.size.height)\t\($chosen.id)\t\($chosen.refreshRate)"
+                | "\($out.name)\t\($cur.size.width)x\($cur.size.height)\t\($chosen.id)\t\($chosen.refreshRate)\t\($cur.refreshRate)"
             ' || true
         )
+
+        ACTIVE_DISPLAY_COUNT=0
+        PROMPT_SUMMARY=""
+        for line in "${DISPLAY_MODE_LINES[@]}"; do
+            [[ -z "$line" ]] && continue
+            IFS=$'\t' read -r DISP_NAME DISP_RES MODE_ID MODE_HZ CUR_HZ <<< "$line"
+            [[ -z "$DISP_NAME" || -z "$MODE_ID" ]] && continue
+            if [[ -n "$EXPLICIT_OUTPUT" && "$DISP_NAME" != "$EXPLICIT_OUTPUT" ]]; then
+                continue
+            fi
+            ((ACTIVE_DISPLAY_COUNT += 1))
+            PROMPT_SUMMARY+="$(printf "• %s (%s): %.2f Hz → %.2f Hz\n" "$DISP_NAME" "$DISP_RES" "$CUR_HZ" "$MODE_HZ")"
+        done
+
+        APPLY_REFRESH_RATE=true
+        if (( ACTIVE_DISPLAY_COUNT > 1 )); then
+            PROMPT_MSG=$(printf "Multiple displays detected (%d connected).\nChange display refresh rates to %s for '%s' mode?\n\n%s" \
+                "$ACTIVE_DISPLAY_COUNT" "$REFRESH_TARGET" "$MODE" "$PROMPT_SUMMARY")
+            if command -v kdialog >/dev/null 2>&1; then
+                if ! kdialog --title "KDE Power Management" --icon "video-display" --yesno "$PROMPT_MSG" 2>/dev/null; then
+                    APPLY_REFRESH_RATE=false
+                fi
+            elif command -v zenity >/dev/null 2>&1; then
+                if ! zenity --question --title="KDE Power Management" --text="$PROMPT_MSG" 2>/dev/null; then
+                    APPLY_REFRESH_RATE=false
+                fi
+            fi
+        fi
+
+        if [[ "$APPLY_REFRESH_RATE" == "true" ]]; then
+            for line in "${DISPLAY_MODE_LINES[@]}"; do
+                [[ -z "$line" ]] && continue
+                IFS=$'\t' read -r DISP_NAME DISP_RES MODE_ID MODE_HZ CUR_HZ <<< "$line"
+                [[ -z "$DISP_NAME" || -z "$MODE_ID" ]] && continue
+                if [[ -n "$EXPLICIT_OUTPUT" && "$DISP_NAME" != "$EXPLICIT_OUTPUT" ]]; then
+                    continue
+                fi
+                printf "  - Refresh rate (%s @ %s): %s (%.2f Hz, mode %s)\n" \
+                    "$DISP_NAME" "$DISP_RES" "$REFRESH_TARGET" "$MODE_HZ" "$MODE_ID"
+                KSCREEN_ARGS+=("output.${DISP_NAME}.mode.${MODE_ID}")
+            done
+        else
+            echo "  - Refresh rate change skipped by user (multiple displays connected)."
+            REFRESH_STATUS_NOTE="Hz kept"
+        fi
     fi
+
+    NOTIFY_CHANGES+=("Display: ${REFRESH_STATUS_NOTE}, ABM ${ABM_LEVEL}, VRR ${VRR_POLICY}, ${DIMMING}% dimming")
 
     kscreen-doctor "${KSCREEN_ARGS[@]}" || {
         echo "Warning: Some kscreen-doctor parameters could not be applied." >&2

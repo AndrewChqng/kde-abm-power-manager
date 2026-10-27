@@ -76,7 +76,7 @@ The display panel and GPU display engine (DCN) account for **30%–45%** of a mo
 
 | Parameter | AC (`ac`) | Battery (`battery`) | Low Battery (`low_battery`) | Technical Power Benefit |
 | :--- | :--- | :--- | :--- | :--- |
-| **Refresh Rate** | **Maximum Hz** | **Lowest Hz** | **Lowest Hz** | Dynamically drops all active displays to their lowest refresh rate for the current resolution on battery to cut GPU scanout and TCON power. |
+| **Refresh Rate** | **Maximum Hz** | **Lowest Hz** | **Lowest Hz** | Dynamically drops all active displays to their lowest refresh rate for the current resolution on battery (with a `kdialog` confirmation popup if >1 display is connected). |
 | **AMD ABM** | `0` (Off) | `4` (Max) | `4` (Max) | Modulates pixel contrast and luminance curves in the AMDGPU driver to drop physical LED backlight current by up to 25%–35% transparently. |
 | **Color Tradeoff** | `preferEfficiency` | `preferEfficiency` | `preferEfficiency` | Enables direct hardware scanout (Multi-Plane Overlays) and lower-power intermediate surface formats, avoiding heavy GPU compositor blending penalties. |
 | **Bit Depth (`maxbpc`)** | `automatic` (10/16-bit) | `8` (8-bit) | `8` (8-bit) | Reduces eDP link bandwidth requirements over the display interface, saving PHY transceiver power. |
