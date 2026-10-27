@@ -304,25 +304,29 @@ if command -v kscreen-doctor >/dev/null 2>&1; then
                 | ($out.modes[] | select(.id == $out.currentModeId)) as $cur
                 | ($out.modes | map(select(.size.width == $cur.size.width and .size.height == $cur.size.height))) as $same_res
                 | (if $target == "max" then ($same_res | max_by(.refreshRate)) else ($same_res | min_by(.refreshRate)) end) as $chosen
-                | "\($out.name)\t\($cur.size.width)x\($cur.size.height)\t\($chosen.id)\t\($chosen.refreshRate)\t\($cur.refreshRate)"
+                | "\($out.name)\t\($cur.size.width)x\($cur.size.height)\t\($chosen.id)\t\($chosen.refreshRate)\t\($cur.id)\t\($cur.refreshRate)"
             ' || true
         )
 
         ACTIVE_DISPLAY_COUNT=0
+        HAS_REFRESH_CHANGE=false
         PROMPT_SUMMARY=""
         for line in "${DISPLAY_MODE_LINES[@]}"; do
             [[ -z "$line" ]] && continue
-            IFS=$'\t' read -r DISP_NAME DISP_RES MODE_ID MODE_HZ CUR_HZ <<< "$line"
+            IFS=$'\t' read -r DISP_NAME DISP_RES MODE_ID MODE_HZ CUR_MODE_ID CUR_HZ <<< "$line"
             [[ -z "$DISP_NAME" || -z "$MODE_ID" ]] && continue
             if [[ -n "$EXPLICIT_OUTPUT" && "$DISP_NAME" != "$EXPLICIT_OUTPUT" ]]; then
                 continue
             fi
             ((ACTIVE_DISPLAY_COUNT += 1))
+            if [[ "$MODE_ID" != "$CUR_MODE_ID" ]]; then
+                HAS_REFRESH_CHANGE=true
+            fi
             PROMPT_SUMMARY+="$(printf "• %s (%s): %.2f Hz → %.2f Hz\n" "$DISP_NAME" "$DISP_RES" "$CUR_HZ" "$MODE_HZ")"
         done
 
         APPLY_REFRESH_RATE=true
-        if (( ACTIVE_DISPLAY_COUNT > 1 )); then
+        if (( ACTIVE_DISPLAY_COUNT > 1 )) && [[ "$HAS_REFRESH_CHANGE" == "true" ]]; then
             PROMPT_MSG=$(printf "Multiple displays detected (%d connected).\nChange display refresh rates to %s for '%s' mode?\n\n%s" \
                 "$ACTIVE_DISPLAY_COUNT" "$REFRESH_TARGET" "$MODE" "$PROMPT_SUMMARY")
             if command -v kdialog >/dev/null 2>&1; then
@@ -339,7 +343,7 @@ if command -v kscreen-doctor >/dev/null 2>&1; then
         if [[ "$APPLY_REFRESH_RATE" == "true" ]]; then
             for line in "${DISPLAY_MODE_LINES[@]}"; do
                 [[ -z "$line" ]] && continue
-                IFS=$'\t' read -r DISP_NAME DISP_RES MODE_ID MODE_HZ CUR_HZ <<< "$line"
+                IFS=$'\t' read -r DISP_NAME DISP_RES MODE_ID MODE_HZ CUR_MODE_ID CUR_HZ <<< "$line"
                 [[ -z "$DISP_NAME" || -z "$MODE_ID" ]] && continue
                 if [[ -n "$EXPLICIT_OUTPUT" && "$DISP_NAME" != "$EXPLICIT_OUTPUT" ]]; then
                     continue
