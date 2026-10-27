@@ -640,26 +640,43 @@ if command -v plasma-apply-colorscheme >/dev/null 2>&1; then
         CURRENT_SCHEME=$(kreadconfig6 --file kdeglobals --group General --key ColorScheme 2>/dev/null || true)
     fi
 
-    if [[ "$COLOR_SCHEME_MODE" == "dark" ]]; then
-        # If currently not on a dark scheme, save the active scheme to restore on AC
+    # Detect nighttime via KWin NightLight (daylight == false) with local clock fallback (19:00 - 06:59)
+    IS_NIGHTTIME=false
+    if [[ -n "$QDBUS_BIN" ]]; then
+        NL_RUNNING=$("$QDBUS_BIN" org.kde.KWin /org/kde/KWin/NightLight org.kde.KWin.NightLight.running 2>/dev/null || true)
+        NL_DAYLIGHT=$("$QDBUS_BIN" org.kde.KWin /org/kde/KWin/NightLight org.kde.KWin.NightLight.daylight 2>/dev/null || true)
+        if [[ "$NL_RUNNING" == "true" && "$NL_DAYLIGHT" == "false" ]]; then
+            IS_NIGHTTIME=true
+        fi
+    fi
+    CURRENT_HOUR=$(date +%-H 2>/dev/null || echo 12)
+    if (( CURRENT_HOUR >= 19 || CURRENT_HOUR < 7 )); then
+        IS_NIGHTTIME=true
+    fi
+
+    if [[ "$COLOR_SCHEME_MODE" == "dark" || "$IS_NIGHTTIME" == "true" ]]; then
+        # Save daytime AC scheme only if switching from a non-dark scheme on battery during daytime
         if [[ "$CURRENT_SCHEME" != "BreezeDark" ]]; then
-            mkdir -p "$(dirname "$SCHEME_STATE_FILE")"
-            if [[ -n "$CURRENT_SCHEME" ]]; then
+            if [[ "$IS_NIGHTTIME" == "false" && -n "$CURRENT_SCHEME" ]]; then
+                mkdir -p "$(dirname "$SCHEME_STATE_FILE")"
                 echo "$CURRENT_SCHEME" > "$SCHEME_STATE_FILE"
             fi
-            echo "Switching to dark color scheme (BreezeDark) to maximize ABM power savings..."
+            echo "Switching to dark color scheme (BreezeDark)..."
             plasma-apply-colorscheme BreezeDark >/dev/null 2>&1 || true
-            NOTIFY_CHANGES+=("Theme: Switched to BreezeDark for ABM")
+        fi
+        if [[ "$IS_NIGHTTIME" == "true" && "$MODE" == "ac" ]]; then
+            rm -f "$SCHEME_STATE_FILE"
+            NOTIFY_CHANGES+=("Theme: Kept BreezeDark (nighttime)")
         else
             NOTIFY_CHANGES+=("Theme: BreezeDark active")
         fi
     elif [[ "$COLOR_SCHEME_MODE" == "restore" ]]; then
-        # Restore saved AC color scheme if present
+        # Restore saved AC color scheme during daytime if present
         if [[ -f "$SCHEME_STATE_FILE" ]]; then
             SAVED_SCHEME=$(cat "$SCHEME_STATE_FILE" 2>/dev/null || true)
             rm -f "$SCHEME_STATE_FILE"
             if [[ -n "$SAVED_SCHEME" && "$SAVED_SCHEME" != "$CURRENT_SCHEME" ]]; then
-                echo "Restoring AC color scheme (${SAVED_SCHEME})..."
+                echo "Restoring daytime AC color scheme (${SAVED_SCHEME})..."
                 plasma-apply-colorscheme "$SAVED_SCHEME" >/dev/null 2>&1 || true
                 NOTIFY_CHANGES+=("Theme: Restored AC theme (${SAVED_SCHEME})")
             fi
