@@ -135,9 +135,9 @@ Disables Always-On USB standby charging (`/sys/bus/platform/drivers/ideapad_acpi
 - **HDA Audio Codec (`/sys/module/snd_hda_intel/parameters/power_save`)**: Set to `1` on Battery and Low Battery (powers down audio codec hardware after 1s of silence); `0` on AC.
 - **PipeWire Buffer (`clock.force-quantum`)**: Set to `2048` samples on Low Battery (reducing audio CPU interrupts by 4x–8x); `0` (dynamic) on AC and Battery.
 
-### 10. Content-Aware Dark Mode Switching (ABM Boost)
+### 10. Content-Aware & Nighttime-Aware Dark Mode Switching (ABM Boost)
 
-Automatically switches Plasma to `BreezeDark` on Battery and Low Battery to maximize AMD ABM physical backlight reductions, saving and restoring the user's AC theme when plugged back in.
+Automatically switches Plasma to `BreezeDark` on Battery and Low Battery to maximize AMD ABM physical backlight reductions. On AC, restores the user's daytime theme only during daylight hours—automatically keeping `BreezeDark` active at night (detected via KWin `NightLight.daylight` D-Bus state and local time `19:00–06:59`).
 
 ### 11. CPU Boost, AMD P-State EPP, SMT, ACPI Profile, iGPU DPM & PCIe ASPM
 
