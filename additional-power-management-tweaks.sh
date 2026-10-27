@@ -744,27 +744,9 @@ if [[ -w /sys/module/pcie_aspm/parameters/policy ]]; then
     echo "$PCIE_ASPM_POLICY" > /sys/module/pcie_aspm/parameters/policy 2>/dev/null || true
 fi
 
-echo "Setting PCI & USB runtime PM power/control to ${PCI_RUNTIME_PM} (keeping USB HID input devices always on)..."
-for pci_pm in /sys/bus/pci/devices/*/power/control; do
-    [[ -w "$pci_pm" ]] && echo "$PCI_RUNTIME_PM" > "$pci_pm" 2>/dev/null || true
-done
-
-for usb_dev in /sys/bus/usb/devices/*; do
-    usb_pm="$usb_dev/power/control"
-    [[ ! -w "$usb_pm" ]] && continue
-    # Never autosuspend USB HID devices (mice, keyboards) in any power state
-    HAS_HID=false
-    for intf_drv in "$usb_dev"/*/driver; do
-        if [[ -L "$intf_drv" && "$(basename "$(readlink "$intf_drv" 2>/dev/null)")" == "usbhid" ]]; then
-            HAS_HID=true
-            break
-        fi
-    done
-    if [[ "$HAS_HID" == "true" || "$PCI_RUNTIME_PM" == "on" ]]; then
-        echo "on" > "$usb_pm" 2>/dev/null || true
-    else
-        echo "auto" > "$usb_pm" 2>/dev/null || true
-    fi
+echo "Setting PCI & USB runtime PM power/control to ${PCI_RUNTIME_PM}..."
+for dev_pm in /sys/bus/pci/devices/*/power/control /sys/bus/usb/devices/*/power/control; do
+    [[ -w "$dev_pm" ]] && echo "$PCI_RUNTIME_PM" > "$dev_pm" 2>/dev/null || true
 done
 
 if [[ "$PCI_RUNTIME_PM" == "auto" ]]; then

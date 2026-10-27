@@ -13,10 +13,9 @@ SUBSYSTEM=="drm", KERNEL=="card*", ACTION=="add|change", RUN+="/bin/sh -c 'chgrp
 # 3. PCI Runtime Power Management & PCIe ASPM Policy
 SUBSYSTEM=="pci", ACTION=="add|change", RUN+="/bin/sh -c 'chgrp wheel /sys%p/power/control /sys/module/pcie_aspm/parameters/policy 2>/dev/null; chmod 0664 /sys%p/power/control /sys/module/pcie_aspm/parameters/policy 2>/dev/null || true'"
 
-# 4. NVMe & USB Runtime Power Management (keep USB HID mice/keyboards always on)
+# 4. NVMe & USB Runtime Power Management
 SUBSYSTEM=="nvme", ACTION=="add|change", RUN+="/bin/sh -c 'chgrp wheel /sys%p/power/control 2>/dev/null; chmod 0664 /sys%p/power/control 2>/dev/null || true'"
 SUBSYSTEM=="usb", ACTION=="add|change", RUN+="/bin/sh -c 'chgrp wheel /sys%p/power/control 2>/dev/null; chmod 0664 /sys%p/power/control 2>/dev/null || true'"
-SUBSYSTEM=="usb", ATTR{bInterfaceClass}=="03", ACTION=="add|change", RUN+="/bin/sh -c 'echo on > /sys%p/../power/control 2>/dev/null || true'"
 
 # 5. Intel/AMD HDA Audio Codec Power Save
 SUBSYSTEM=="sound", ACTION=="add|change", RUN+="/bin/sh -c 'chgrp wheel /sys/module/snd_hda_intel/parameters/power_save /sys/module/snd_hda_intel/parameters/power_save_controller 2>/dev/null; chmod 0664 /sys/module/snd_hda_intel/parameters/power_save /sys/module/snd_hda_intel/parameters/power_save_controller 2>/dev/null || true'"
